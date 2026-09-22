@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jungschar Chat</title>
+  <meta name="theme-color" content="#0e1621">
+  
+  <!-- Das eigene CSS -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Supabase JS Library -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- BEREICH 1: LOGIN -->
+    <div id="login-bereich" class="card" style="display: none;">
+      <h2>Jungschar Chat Login</h2>
+      <p>Melde dich an, um mitzuschreiben.</p>
+
+      <div class="input-group">
+        <label for="username">Benutzername</label>
+        <input type="text" id="username" placeholder="dein Benutzername" autocomplete="username">
+      </div>
+
+      <div class="input-group">
+        <label for="password">Passwort</label>
+        <div class="password-field">
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+          <button type="button" class="toggle-password" onclick="togglePasswordVisibility()" aria-label="Passwort anzeigen">👁</button>
+        </div>
+      </div>
+
+      <button id="login-btn" onclick="login()">Einloggen</button>
+      <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
+    </div>
+
+    <!-- BEREICH 1b: PASSWORT VERGESSEN (Benutzername eingeben, Link geht an hinterlegte E-Mail) -->
+    <div id="forgot-bereich" class="card" style="display: none;">
+      <h2>Passwort vergessen</h2>
+      <p>Gib deinen Benutzernamen ein. Falls er uns bekannt ist, schicken wir einen Link an die hinterlegte E-Mail-Adresse.</p>
+
+      <div class="input-group">
+        <label for="forgot-username">Benutzername</label>
+        <input type="text" id="forgot-username" placeholder="dein Benutzername" autocomplete="username">
+      </div>
+
+      <button id="forgot-send-btn" onclick="sendPasswordReset()">Link senden</button>
+      <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
+    </div>
+
+    <!-- BEREICH 2: NEUES PASSWORT SETZEN (nach Klick auf den Link aus der E-Mail) -->
+    <div id="reset-bereich" class="card" style="display: none;">
+      <h2>Neues Passwort setzen</h2>
+      <p>Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
+
+      <div class="input-group">
+        <label for="reset-password">Neues Passwort</label>
+        <input type="password" id="reset-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+      </div>
+
+      <button id="reset-password-btn" onclick="completePasswordReset()">Passwort setzen</button>
+    </div>
+
+    <!-- BEREICH 3: CHATLISTE (Startbildschirm nach dem Login) -->
+    <div id="list-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <div class="user-info">
+          <span id="user-display-name">Nutzer</span>
+        </div>
+        <div class="header-actions">
+          <button id="settings-toggle-btn" class="settings-btn" onclick="toggleSettingsPanel()">Einstellungen</button>
+          <button class="logout-btn" onclick="logout()">Abmelden</button>
+        </div>
+      </header>
+
+      <!-- Einstellungen: für jeden Nutzer, Nutzerverwaltung nur für Admins sichtbar -->
+      <section id="settings-panel" class="admin-panel" style="display: none;">
+        <h3>Einstellungen</h3>
+        <div class="input-group">
+          <label for="new-password">Neues Passwort</label>
+          <input type="password" id="new-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+        </div>
+        <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
+
+        <div id="admin-settings-section" style="display: none;">
+          <h3>Nutzer verwalten</h3>
+          <ul id="user-list"></ul>
+        </div>
+      </section>
+
+      <!-- Gruppe + Einzelchats -->
+      <ul id="chat-list"></ul>
+
+    </div>
+
+    <!-- BEREICH 4: GEÖFFNETER CHAT (Gruppe oder Einzelchat) -->
+    <div id="conversation-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht">←</button>
+        <div class="user-info">
+          <span id="conversation-title">Jungschar Chat</span>
+        </div>
+      </header>
+
+      <!-- Nachrichtenverlauf -->
+      <div id="chat-box">
+        <!-- Hier werden die Nachrichten aus Supabase geladen -->
+      </div>
+
+      <!-- Eingabefeld -->
+      <div class="chat-input-area">
+        <input type="text" id="message-input" placeholder="Nachricht schreiben..." maxlength="300">
+        <button id="send-btn" onclick="sendMessage()">Senden</button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Die eigene JavaScript-Logik ganz unten -->
+  <script src="script.js"></script>
+</body>
+</html>
