@@ -10,6 +10,9 @@ let currentProfile = null   // Zeile aus "profiles" (display_name, role, is_bloc
 let profileCache = {}       // id -> display_name, für Realtime-Nachrichten und die Chatliste
 let chatChannel = null      // Realtime-Channel für die aktuell geöffnete Ansicht
 let recoveryMode = false    // true, solange ein "Passwort vergessen"-Link verarbeitet wird
+let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, für die Chatliste
+let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
+let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
 let currentRoom = { type: 'group' }
@@ -110,34 +113,88 @@ async function enterApp(user) {
     profile.display_name || (user.email ? user.email.split('@')[0] : 'Nutzer')
 
   await loadProfileCache()
-  renderChatList()
+  await renderChatList()
 
   stopListening()
   hideAllScreens()
   document.getElementById('list-bereich').style.display = 'block'
 }
 
+// Letzte Nachricht je Chat laden, für die Vorschau in der Liste
+async function loadChatPreviews() {
+  groupPreviews = {}
+  dmPreviews = {}
+
+  const { data: groupRows } = await supabaseClient
+    .from('messages')
+    .select('text, created_at, group_key')
+    .order('created_at', { ascending: false })
+    .limit(300)
+
+  if (groupRows) {
+    groupRows.forEach(row => {
+      const key = row.group_key || 'main'
+      if (!groupPreviews[key]) groupPreviews[key] = row
+    })
+  }
+
+  const { data: dmRows } = await supabaseClient
+    .from('direct_messages')
+    .select('text, created_at, sender_id, recipient_id')
+    .order('created_at', { ascending: false })
+    .limit(400)
+
+  if (dmRows) {
+    dmRows.forEach(row => {
+      const other = row.sender_id === currentUser.id ? row.recipient_id : row.sender_id
+      if (!dmPreviews[other]) dmPreviews[other] = row
+    })
+  }
+}
+
+function truncate(text, max) {
+  return text.length > max ? text.slice(0, max) + '…' : text
+}
+
+// Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit
+function chatListItemHTML(avatarHTML, name, preview) {
+  const previewText = preview ? truncate(preview.text, 34) : 'Noch keine Nachrichten'
+  const timeText = preview ? formatTime(preview.created_at) : ''
+  return `
+    ${avatarHTML}
+    <div class="chat-list-text">
+      <div class="chat-list-name">${escapeHTML(name)}</div>
+      <div class="chat-list-preview">${escapeHTML(previewText)}</div>
+    </div>
+    <div class="chat-list-time">${timeText}</div>
+  `
+}
+
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
-function renderChatList() {
+async function renderChatList() {
+  await loadChatPreviews()
+
   const list = document.getElementById('chat-list')
   list.innerHTML = ''
 
   const groupItem = document.createElement('li')
   groupItem.className = 'chat-list-item pinned'
-  groupItem.innerHTML = `
-    <div class="chat-list-avatar group-avatar">📌</div>
-    <div class="chat-list-name">JungscharChat</div>
-  `
+  groupItem.innerHTML = chatListItemHTML(
+    '<div class="chat-list-avatar group-avatar">📌</div>',
+    'JungscharChat',
+    groupPreviews['main']
+  )
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
   if (isAdmin() || currentProfile.gender === 'junge') {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned'
-    item.innerHTML = `
-      <div class="chat-list-avatar group-avatar">👦</div>
-      <div class="chat-list-name">Jungs</div>
-    `
+    item.innerHTML = chatListItemHTML(
+      '<div class="chat-list-avatar group-avatar">👦</div>',
+      'Jungs',
+      groupPreviews['junge']
+    )
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
   }
@@ -145,25 +202,32 @@ function renderChatList() {
   if (isAdmin() || currentProfile.gender === 'maedchen') {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned'
-    item.innerHTML = `
-      <div class="chat-list-avatar group-avatar">👧</div>
-      <div class="chat-list-name">Mädels</div>
-    `
+    item.innerHTML = chatListItemHTML(
+      '<div class="chat-list-avatar group-avatar">👧</div>',
+      'Mädels',
+      groupPreviews['maedchen']
+    )
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
   }
 
   const others = Object.entries(profileCache)
     .filter(([id]) => id !== currentUser.id)
-    .sort((a, b) => (a[1] || '').localeCompare(b[1] || ''))
+    .sort((a, b) => {
+      const timeA = dmPreviews[a[0]] ? new Date(dmPreviews[a[0]].created_at).getTime() : 0
+      const timeB = dmPreviews[b[0]] ? new Date(dmPreviews[b[0]].created_at).getTime() : 0
+      if (timeA !== timeB) return timeB - timeA
+      return (a[1] || '').localeCompare(b[1] || '')
+    })
 
   others.forEach(([id, name]) => {
     const item = document.createElement('li')
     item.className = 'chat-list-item'
-    item.innerHTML = `
-      <div class="chat-list-avatar" style="background:${avatarColor(id)}">${initialsOf(name)}</div>
-      <div class="chat-list-name">${escapeHTML(name || 'Ohne Namen')}</div>
-    `
+    item.innerHTML = chatListItemHTML(
+      `<div class="chat-list-avatar" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
+      name || 'Ohne Namen',
+      dmPreviews[id]
+    )
     item.addEventListener('click', () => openDirectChat(id, name))
     list.appendChild(item)
   })
@@ -216,7 +280,7 @@ function showList() {
   stopListening()
   hideAllScreens()
   document.getElementById('list-bereich').style.display = 'block'
-  renderChatList() // Namen könnten sich zwischenzeitlich geändert haben
+  renderChatList() // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
 }
 
 // 3. Einloggen
@@ -335,12 +399,35 @@ async function loadMessages() {
   chatBox.innerHTML = ''
 
   if (messages.length === 0) {
+    reactionMap = {}
     showEmptyHint()
     return
   }
 
+  reactionMap = await loadReactionsFor(messages.map(m => m.id))
   messages.forEach(msg => renderMessage(msg))
   chatBox.scrollTop = chatBox.scrollHeight
+}
+
+// Reaktionen (Daumen hoch/runter) zu einer Liste von Nachrichten-IDs laden
+async function loadReactionsFor(ids) {
+  const map = {}
+  if (!ids || ids.length === 0) return map
+
+  const table = currentRoom.type === 'dm' ? 'dm_reactions' : 'message_reactions'
+  const { data } = await supabaseClient
+    .from(table)
+    .select('message_id, emoji, user_id')
+    .in('message_id', ids)
+
+  ;(data || []).forEach(r => {
+    if (!map[r.message_id]) map[r.message_id] = { up: 0, down: 0, mine: null }
+    if (r.emoji === 'up') map[r.message_id].up++
+    else if (r.emoji === 'down') map[r.message_id].down++
+    if (r.user_id === currentUser.id) map[r.message_id].mine = r.emoji
+  })
+
+  return map
 }
 
 function showEmptyHint() {
@@ -414,6 +501,23 @@ function renderMessage(msg) {
   timeEl.textContent = formatTime(msg.created_at)
   meta.appendChild(timeEl)
 
+  if (msg.edited_at) {
+    const editedTag = document.createElement('span')
+    editedTag.className = 'msg-edited'
+    editedTag.textContent = '(bearbeitet)'
+    meta.appendChild(editedTag)
+  }
+
+  if (isOwn && !isAdmin()) {
+    const editBtn = document.createElement('button')
+    editBtn.className = 'msg-delete'
+    editBtn.title = 'Nachricht bearbeiten'
+    editBtn.setAttribute('aria-label', 'Nachricht bearbeiten')
+    editBtn.textContent = '✏️'
+    editBtn.addEventListener('click', () => editMessage(msg.id, msg.text))
+    meta.appendChild(editBtn)
+  }
+
   if (isAdmin() || isOwn) {
     const delBtn = document.createElement('button')
     delBtn.className = 'msg-delete'
@@ -428,8 +532,27 @@ function renderMessage(msg) {
   textEl.className = 'msg-text'
   textEl.textContent = msg.text
 
+  const reactRow = document.createElement('div')
+  reactRow.className = 'msg-reactions'
+
+  const info = reactionMap[msg.id] || { up: 0, down: 0, mine: null }
+
+  const upBtn = document.createElement('button')
+  upBtn.className = 'reaction-btn' + (info.mine === 'up' ? ' active' : '')
+  upBtn.textContent = '👍 ' + info.up
+  upBtn.addEventListener('click', () => toggleReaction(msg.id, 'up'))
+
+  const downBtn = document.createElement('button')
+  downBtn.className = 'reaction-btn' + (info.mine === 'down' ? ' active' : '')
+  downBtn.textContent = '👎 ' + info.down
+  downBtn.addEventListener('click', () => toggleReaction(msg.id, 'down'))
+
+  reactRow.appendChild(upBtn)
+  reactRow.appendChild(downBtn)
+
   msgElement.appendChild(meta)
   msgElement.appendChild(textEl)
+  msgElement.appendChild(reactRow)
   row.appendChild(msgElement)
 
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
@@ -499,6 +622,10 @@ function listenForNewMessages() {
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
       renderMessage(msg)
     })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: table }, (payload) => {
+      if (!belongsToCurrentRoom(payload.new)) return
+      updateMessageElement(payload.new)
+    })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: table }, (payload) => {
       removeMessageElement(payload.old.id)
     })
@@ -528,6 +655,89 @@ function belongsToCurrentRoom(row) {
 function removeMessageElement(id) {
   const el = document.querySelector(`#chat-box [data-id="${id}"]`)
   if (el) el.remove()
+}
+
+// Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
+async function toggleReaction(messageId, emoji) {
+  const table = currentRoom.type === 'dm' ? 'dm_reactions' : 'message_reactions'
+  const info = reactionMap[messageId] || { up: 0, down: 0, mine: null }
+
+  if (info.mine === emoji) {
+    await supabaseClient
+      .from(table)
+      .delete()
+      .eq('message_id', messageId)
+      .eq('user_id', currentUser.id)
+      .eq('emoji', emoji)
+  } else {
+    if (info.mine) {
+      await supabaseClient
+        .from(table)
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', currentUser.id)
+        .eq('emoji', info.mine)
+    }
+    await supabaseClient
+      .from(table)
+      .insert([{ message_id: messageId, user_id: currentUser.id, emoji: emoji }])
+  }
+
+  const updated = await loadReactionsFor([messageId])
+  reactionMap[messageId] = updated[messageId] || { up: 0, down: 0, mine: null }
+  refreshReactionButtons(messageId)
+}
+
+function refreshReactionButtons(messageId) {
+  const row = document.querySelector(`#chat-box [data-id="${messageId}"] .msg-reactions`)
+  if (!row) return
+  const info = reactionMap[messageId] || { up: 0, down: 0, mine: null }
+  const upBtn = row.children[0]
+  const downBtn = row.children[1]
+  upBtn.textContent = '👍 ' + info.up
+  upBtn.className = 'reaction-btn' + (info.mine === 'up' ? ' active' : '')
+  downBtn.textContent = '👎 ' + info.down
+  downBtn.className = 'reaction-btn' + (info.mine === 'down' ? ' active' : '')
+}
+
+// Eigene Nachricht bearbeiten
+async function editMessage(id, oldText) {
+  const newText = prompt('Nachricht bearbeiten:', oldText)
+  if (newText === null) return
+
+  const trimmed = newText.trim()
+  if (!trimmed || trimmed === oldText) return
+
+  const { data, error } = await supabaseClient
+    .from(currentTable())
+    .update({ text: trimmed, edited_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+
+  if (error) {
+    alert('Bearbeiten fehlgeschlagen: ' + error.message)
+  } else if (!data || data.length === 0) {
+    alert('Bearbeiten nicht erlaubt.')
+  } else {
+    updateMessageElement(data[0])
+  }
+}
+
+// Text (und ggf. den "bearbeitet"-Hinweis) einer bereits angezeigten Nachricht aktualisieren
+function updateMessageElement(msg) {
+  const row = document.querySelector(`#chat-box [data-id="${msg.id}"]`)
+  if (!row) return
+
+  const textEl = row.querySelector('.msg-text')
+  if (textEl) textEl.textContent = msg.text
+
+  if (msg.edited_at && !row.querySelector('.msg-edited')) {
+    const meta = row.querySelector('.msg-meta')
+    const tag = document.createElement('span')
+    tag.className = 'msg-edited'
+    tag.textContent = '(bearbeitet)'
+    meta.insertBefore(tag, meta.querySelector('.msg-delete'))
+  }
 }
 
 // 8. Nachricht löschen (eigene Nachricht oder, als Admin, jede Nachricht)

@@ -346,6 +346,42 @@ input:focus-visible {
   color: var(--accent);
 }
 
+.msg-edited {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.msg-reactions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.reaction-btn {
+  width: auto;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.msg.other .reaction-btn {
+  background: var(--bg-app);
+}
+
+.reaction-btn:hover {
+  border-color: var(--accent);
+}
+
+.reaction-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .msg .msg-delete {
   width: auto;
   margin-left: auto;
@@ -555,4 +591,26 @@ input:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-list-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-list-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.chat-list-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  align-self: flex-start;
+  margin-top: 2px;
 }
