@@ -59,6 +59,7 @@ function hideAllScreens() {
   document.getElementById('forgot-bereich').style.display = 'none'
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
+  document.getElementById('settings-bereich').style.display = 'none'
   document.getElementById('conversation-bereich').style.display = 'none'
 }
 
@@ -71,7 +72,6 @@ function showLogin() {
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
-  document.getElementById('settings-panel').style.display = 'none'
   hideAllScreens()
   document.getElementById('login-bereich').style.display = 'block'
 }
@@ -126,7 +126,7 @@ function renderChatList() {
   groupItem.className = 'chat-list-item pinned'
   groupItem.innerHTML = `
     <div class="chat-list-avatar group-avatar">📌</div>
-    <div class="chat-list-name">Jungschar Chat</div>
+    <div class="chat-list-name">JungscharChat</div>
   `
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
@@ -185,7 +185,7 @@ function escapeHTML(str) {
 
 function openGroupChat() {
   currentRoom = { type: 'group', groupKey: null }
-  openConversation('Jungschar Chat')
+  openConversation('JungscharChat')
 }
 
 function openGenderGroup(groupKey, title) {
@@ -203,6 +203,9 @@ async function openConversation(title) {
   hideAllScreens()
   document.getElementById('conversation-bereich').style.display = 'block'
   document.getElementById('message-input').value = ''
+
+  // Admins lesen überall mit, schreiben aber nirgends
+  document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
 
   await loadMessages()
   listenForNewMessages()
@@ -547,16 +550,19 @@ async function deleteMessage(id) {
   }
 }
 
-// 9. Einstellungen: eigenes Passwort ändern, bei Admins zusätzlich Nutzerverwaltung
-function toggleSettingsPanel() {
-  const panel = document.getElementById('settings-panel')
-  const willOpen = panel.style.display === 'none'
-  panel.style.display = willOpen ? 'block' : 'none'
+// 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,
+//    bei Admins zusätzlich die Nutzerverwaltung darunter.
+function openSettings() {
+  stopListening()
+  hideAllScreens()
+  document.getElementById('settings-bereich').style.display = 'block'
 
   const adminSection = document.getElementById('admin-settings-section')
   if (isAdmin()) {
-    adminSection.style.display = willOpen ? 'block' : 'none'
-    if (willOpen) loadUsers()
+    adminSection.style.display = 'block'
+    loadUsers()
+  } else {
+    adminSection.style.display = 'none'
   }
 }
 

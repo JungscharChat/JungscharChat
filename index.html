@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jungschar Chat</title>
+  <title>JungscharChat</title>
   <meta name="theme-color" content="#0e1621">
   
   <!-- Das eigene CSS -->
@@ -18,7 +18,7 @@
 
     <!-- BEREICH 1: LOGIN -->
     <div id="login-bereich" class="card" style="display: none;">
-      <h2>Jungschar Chat Login</h2>
+      <h2>JungscharChat Login</h2>
       <p>Melde dich an, um mitzuschreiben.</p>
 
       <div class="input-group">
@@ -73,28 +73,36 @@
           <span id="user-display-name">Nutzer</span>
         </div>
         <div class="header-actions">
-          <button id="settings-toggle-btn" class="settings-btn" onclick="toggleSettingsPanel()">Einstellungen</button>
+          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()">Einstellungen</button>
           <button class="logout-btn" onclick="logout()">Abmelden</button>
         </div>
       </header>
 
-      <!-- Einstellungen: für jeden Nutzer, Nutzerverwaltung nur für Admins sichtbar -->
-      <section id="settings-panel" class="admin-panel" style="display: none;">
-        <h3>Einstellungen</h3>
-        <div class="input-group">
-          <label for="new-password">Neues Passwort</label>
-          <input type="password" id="new-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
-        </div>
-        <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
-
-        <div id="admin-settings-section" style="display: none;">
-          <h3>Nutzer verwalten</h3>
-          <ul id="user-list"></ul>
-        </div>
-      </section>
-
       <!-- Gruppe + Einzelchats -->
       <ul id="chat-list"></ul>
+
+    </div>
+
+    <!-- BEREICH 3b: EINSTELLUNGEN (eigener Bildschirm, nicht mehr ausklappbar) -->
+    <div id="settings-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht">←</button>
+        <div class="user-info">
+          <span>Einstellungen</span>
+        </div>
+      </header>
+
+      <div class="input-group">
+        <label for="new-password">Neues Passwort</label>
+        <input type="password" id="new-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+      </div>
+      <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
+
+      <div id="admin-settings-section" style="display: none;">
+        <h3>Nutzer verwalten</h3>
+        <ul id="user-list"></ul>
+      </div>
 
     </div>
 
@@ -104,7 +112,7 @@
       <header class="chat-header">
         <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht">←</button>
         <div class="user-info">
-          <span id="conversation-title">Jungschar Chat</span>
+          <span id="conversation-title">JungscharChat</span>
         </div>
       </header>
 
