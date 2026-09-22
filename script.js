@@ -34,6 +34,24 @@ function initialsOf(name) {
   return (name || '?').trim().charAt(0).toUpperCase()
 }
 
+// Dunkler/heller Modus, gespeichert im Browser (nur auf diesem Gerät)
+function applyStoredTheme() {
+  const stored = localStorage.getItem('theme')
+  const isLight = stored === 'light'
+  document.body.classList.toggle('light-theme', isLight)
+  const toggle = document.getElementById('dark-mode-toggle')
+  if (toggle) toggle.checked = !isLight
+}
+
+function toggleDarkMode() {
+  const toggle = document.getElementById('dark-mode-toggle')
+  const wantsDark = toggle.checked
+  document.body.classList.toggle('light-theme', !wantsDark)
+  localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
+}
+
+applyStoredTheme()
+
 // 2. Start: gespeicherte Session prüfen (Auto-Login nach Neuladen),
 //    oder erkennen, dass gerade ein "Passwort vergessen"-Link geöffnet wurde
 async function init() {
@@ -212,15 +230,16 @@ async function renderChatList() {
   }
 
   const others = Object.entries(profileCache)
-    .filter(([id]) => id !== currentUser.id)
+    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin')
     .sort((a, b) => {
       const timeA = dmPreviews[a[0]] ? new Date(dmPreviews[a[0]].created_at).getTime() : 0
       const timeB = dmPreviews[b[0]] ? new Date(dmPreviews[b[0]].created_at).getTime() : 0
       if (timeA !== timeB) return timeB - timeA
-      return (a[1] || '').localeCompare(b[1] || '')
+      return (a[1].name || '').localeCompare(b[1].name || '')
     })
 
-  others.forEach(([id, name]) => {
+  others.forEach(([id, info]) => {
+    const name = info.name
     const item = document.createElement('li')
     item.className = 'chat-list-item'
     item.innerHTML = chatListItemHTML(
@@ -343,7 +362,7 @@ function showForgotScreen() {
 async function loadProfileCache() {
   const { data, error } = await supabaseClient
     .from('profiles')
-    .select('id, display_name')
+    .select('id, display_name, role')
 
   if (error) {
     console.error('Fehler beim Laden der Profile:', error)
@@ -351,17 +370,17 @@ async function loadProfileCache() {
   }
 
   profileCache = {}
-  data.forEach(p => { profileCache[p.id] = p.display_name })
+  data.forEach(p => { profileCache[p.id] = { name: p.display_name, role: p.role } })
 }
 
 async function fetchProfileName(userId) {
   const { data } = await supabaseClient
     .from('profiles')
-    .select('display_name')
+    .select('display_name, role')
     .eq('id', userId)
     .single()
 
-  if (data) profileCache[userId] = data.display_name
+  if (data) profileCache[userId] = { name: data.display_name, role: data.role }
 }
 
 // Name der Tabelle, je nachdem ob gerade die Gruppe oder ein Einzelchat offen ist
@@ -467,7 +486,7 @@ function renderMessage(msg) {
   const isOwn = msg.sender_id === currentUser.id
   const author =
     (msg.profiles && msg.profiles.display_name) ||
-    profileCache[msg.sender_id] ||
+    (profileCache[msg.sender_id] && profileCache[msg.sender_id].name) ||
     'Unbekannt'
 
   const row = document.createElement('div')
@@ -810,6 +829,32 @@ async function sendPasswordReset() {
   }
 }
 
+// Eigene E-Mail-Adresse ändern (der Benutzername bleibt dabei unverändert,
+// er wird nur beim Anlegen eines Kontos einmalig aus der E-Mail abgeleitet)
+async function changeEmail() {
+  const input = document.getElementById('new-email')
+  const newEmail = input.value.trim()
+
+  if (!newEmail) {
+    alert('Bitte eine neue E-Mail-Adresse eingeben.')
+    return
+  }
+
+  const btn = document.getElementById('change-email-btn')
+  btn.disabled = true
+
+  const { error } = await supabaseClient.auth.updateUser({ email: newEmail })
+
+  btn.disabled = false
+
+  if (error) {
+    alert('Fehler beim Ändern: ' + error.message)
+  } else {
+    input.value = ''
+    alert('Prüf-Link wurde an die neue Adresse geschickt. Erst nach dem Bestätigen gilt die Änderung.')
+  }
+}
+
 async function changePassword() {
   const input = document.getElementById('new-password')
   const newPassword = input.value
@@ -903,18 +948,27 @@ async function loadUsers() {
       genderSelect.addEventListener('change', () => setGender(u.id, genderSelect.value))
       row.appendChild(genderSelect)
 
-      if (u.role === 'admin') {
-        const tag = document.createElement('span')
-        tag.className = 'user-tag'
-        tag.textContent = 'Admin'
-        row.appendChild(tag)
-      } else {
-        const btn = document.createElement('button')
-        btn.className = u.is_blocked ? 'unblock-btn' : 'block-btn'
-        btn.textContent = u.is_blocked ? 'Entsperren' : 'Sperren'
-        btn.addEventListener('click', () => setBlocked(u, !u.is_blocked))
-        row.appendChild(btn)
-      }
+      const roleSelect = document.createElement('select')
+      roleSelect.className = 'gender-select'
+      roleSelect.innerHTML = `
+        <option value="user">Nutzer</option>
+        <option value="admin">Admin</option>
+      `
+      roleSelect.value = u.role
+      roleSelect.addEventListener('change', () => {
+        if (confirm(`${u.display_name || 'Diese Person'} wirklich zu "${roleSelect.value}" machen?`)) {
+          setRole(u.id, roleSelect.value)
+        } else {
+          roleSelect.value = u.role
+        }
+      })
+      row.appendChild(roleSelect)
+
+      const btn = document.createElement('button')
+      btn.className = u.is_blocked ? 'unblock-btn' : 'block-btn'
+      btn.textContent = u.is_blocked ? 'Entsperren' : 'Sperren'
+      btn.addEventListener('click', () => setBlocked(u, !u.is_blocked))
+      row.appendChild(btn)
 
       list.appendChild(row)
     })
@@ -922,6 +976,16 @@ async function loadUsers() {
   if (list.children.length === 0) {
     list.textContent = 'Noch keine anderen Nutzer.'
   }
+}
+
+async function setRole(userId, role) {
+  const { error } = await supabaseClient
+    .from('profiles')
+    .update({ role: role })
+    .eq('id', userId)
+
+  if (error) alert('Fehler: ' + error.message)
+  loadUsers()
 }
 
 async function setGender(userId, gender) {
