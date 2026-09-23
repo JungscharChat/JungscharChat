@@ -104,6 +104,7 @@ function hideAllScreens() {
   document.getElementById('settings-bereich').style.display = 'none'
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
+  document.getElementById('admin-contacts-bereich').style.display = 'none'
   document.getElementById('conversation-bereich').style.display = 'none'
 }
 
@@ -270,7 +271,10 @@ async function renderChatList() {
       name || 'Ohne Namen',
       dmPreviews[id]
     )
-    item.addEventListener('click', () => openDirectChat(id, name))
+    item.addEventListener('click', () => {
+      if (isAdmin()) openAdminContactsFor(id, name)
+      else openDirectChat(id, name)
+    })
     list.appendChild(item)
   })
 
@@ -302,6 +306,63 @@ function openGenderGroup(groupKey, title) {
 function openDirectChat(userId, name) {
   currentRoom = { type: 'dm', userId: userId, name: name || 'Ohne Namen' }
   openConversation(name || 'Ohne Namen')
+}
+
+// Admin: Liste der Einzelchat-Partner einer bestimmten Person laden (rein lesend)
+async function openAdminContactsFor(userId, name) {
+  document.getElementById('admin-contacts-title').textContent = name || 'Ohne Namen'
+  hideAllScreens()
+  document.getElementById('admin-contacts-bereich').style.display = 'block'
+
+  const list = document.getElementById('admin-contacts-list')
+  list.innerHTML = '<p class="chat-empty">Lädt …</p>'
+
+  const { data: rows, error } = await supabaseClient
+    .from('direct_messages')
+    .select('sender_id, recipient_id, text, created_at')
+    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+    .order('created_at', { ascending: false })
+
+  list.innerHTML = ''
+
+  if (error) {
+    list.textContent = 'Fehler beim Laden: ' + error.message
+    return
+  }
+
+  // Pro Gesprächspartner nur die jeweils neueste Nachricht merken
+  // (rows ist schon neu -> alt sortiert, also zählt der erste Treffer)
+  const partners = {}
+  rows.forEach(r => {
+    const partnerId = r.sender_id === userId ? r.recipient_id : r.sender_id
+    if (!partners[partnerId]) partners[partnerId] = r
+  })
+
+  const entries = Object.entries(partners)
+
+  if (entries.length === 0) {
+    list.innerHTML = '<p class="chat-empty">Noch keine Einzelchats.</p>'
+    return
+  }
+
+  entries.forEach(([partnerId, preview]) => {
+    const partnerName = (profileCache[partnerId] && profileCache[partnerId].name) || 'Unbekannt'
+    const item = document.createElement('li')
+    item.className = 'chat-list-item'
+    item.innerHTML = chatListItemHTML(
+      `<div class="chat-list-avatar" style="background:${avatarColor(partnerId)}">${initialsOf(partnerName)}</div>`,
+      partnerName,
+      preview
+    )
+    item.addEventListener('click', () => openAdminDmView(userId, partnerId, name, partnerName))
+    list.appendChild(item)
+  })
+}
+
+// Admin: den Einzelchat zwischen zwei anderen Personen rein lesend öffnen
+function openAdminDmView(userA, userB, nameA, nameB) {
+  currentRoom = { type: 'dm-view', userA: userA, userB: userB }
+  openConversation(nameA + ' ↔ ' + nameB)
 }
 
 async function openConversation(title) {
@@ -406,9 +467,20 @@ async function fetchProfileName(userId) {
   if (data) profileCache[userId] = { name: data.display_name, role: data.role }
 }
 
+// Ob gerade ein Einzelchat offen ist - entweder der eigene, oder (Admin) der fremd eingesehene
+function isDmRoom() {
+  return currentRoom.type === 'dm' || currentRoom.type === 'dm-view'
+}
+
 // Name der Tabelle, je nachdem ob gerade die Gruppe oder ein Einzelchat offen ist
 function currentTable() {
-  return currentRoom.type === 'dm' ? 'direct_messages' : 'messages'
+  return isDmRoom() ? 'direct_messages' : 'messages'
+}
+
+// Wessen Sicht gerade eingenommen wird: normalerweise man selbst, beim Admin-Einblick
+// in einen fremden Einzelchat die Person, auf die der Admin geklickt hat
+function perspectiveUserId() {
+  return currentRoom.type === 'dm-view' ? currentRoom.userA : currentUser.id
 }
 
 // 5. Nachrichten aus der Datenbank laden
@@ -423,6 +495,12 @@ async function loadMessages() {
     const other = currentRoom.userId
     query = query.or(
       `and(sender_id.eq.${me},recipient_id.eq.${other}),and(sender_id.eq.${other},recipient_id.eq.${me})`
+    )
+  } else if (currentRoom.type === 'dm-view') {
+    const a = currentRoom.userA
+    const b = currentRoom.userB
+    query = query.or(
+      `and(sender_id.eq.${a},recipient_id.eq.${b}),and(sender_id.eq.${b},recipient_id.eq.${a})`
     )
   } else if (currentRoom.groupKey) {
     query = query.eq('group_key', currentRoom.groupKey)
@@ -456,7 +534,7 @@ async function loadReactionsFor(ids) {
   const map = {}
   if (!ids || ids.length === 0) return map
 
-  const table = currentRoom.type === 'dm' ? 'dm_reactions' : 'message_reactions'
+  const table = isDmRoom() ? 'dm_reactions' : 'message_reactions'
   const { data } = await supabaseClient
     .from(table)
     .select('message_id, emoji, user_id')
@@ -505,7 +583,7 @@ function renderMessage(msg) {
   const emptyHint = chatBox.querySelector('.chat-empty')
   if (emptyHint) emptyHint.remove()
 
-  const isOwn = msg.sender_id === currentUser.id
+  const isOwn = msg.sender_id === perspectiveUserId()
   const author =
     (msg.profiles && msg.profiles.display_name) ||
     (profileCache[msg.sender_id] && profileCache[msg.sender_id].name) ||
@@ -736,9 +814,12 @@ async function handleSendError(error) {
 function listenForNewMessages() {
   stopListening()
   const table = currentTable()
+  const roomKey =
+    currentRoom.type === 'dm-view' ? currentRoom.userA + '-' + currentRoom.userB
+    : (currentRoom.userId || currentRoom.groupKey || 'main')
 
   chatChannel = supabaseClient
-    .channel('room:' + table + ':' + (currentRoom.userId || currentRoom.groupKey || 'main'))
+    .channel('room:' + table + ':' + roomKey)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table }, async (payload) => {
       if (!belongsToCurrentRoom(payload.new)) return
       const msg = payload.new
@@ -767,6 +848,14 @@ function belongsToCurrentRoom(row) {
   if (currentRoom.type === 'group') {
     return (row.group_key || null) === (currentRoom.groupKey || null)
   }
+  if (currentRoom.type === 'dm-view') {
+    const a = currentRoom.userA
+    const b = currentRoom.userB
+    return (
+      (row.sender_id === a && row.recipient_id === b) ||
+      (row.sender_id === b && row.recipient_id === a)
+    )
+  }
   const me = currentUser.id
   const other = currentRoom.userId
   return (
@@ -782,7 +871,7 @@ function removeMessageElement(id) {
 
 // Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
 async function toggleReaction(messageId, emoji) {
-  const table = currentRoom.type === 'dm' ? 'dm_reactions' : 'message_reactions'
+  const table = isDmRoom() ? 'dm_reactions' : 'message_reactions'
   const info = reactionMap[messageId] || { counts: {}, mine: null }
 
   if (info.mine === emoji) {

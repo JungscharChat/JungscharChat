@@ -180,6 +180,20 @@
       <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
     </div>
 
+    <!-- BEREICH 3e: ADMIN-EINBLICK - Einzelchat-Partner einer Person (rein lesend) -->
+    <div id="admin-contacts-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht">←</button>
+        <div class="user-info">
+          <span id="admin-contacts-title">Chats von …</span>
+        </div>
+      </header>
+
+      <ul id="admin-contacts-list"></ul>
+
+    </div>
+
     <!-- BEREICH 4: GEÖFFNETER CHAT (Gruppe oder Einzelchat) -->
     <div id="conversation-bereich" class="card" style="display: none;">
 

@@ -814,7 +814,8 @@ input:focus-visible {
 }
 
 /* ===== Chatliste ===== */
-#chat-list {
+#chat-list,
+#admin-contacts-list {
   list-style: none;
   display: flex;
   flex-direction: column;
