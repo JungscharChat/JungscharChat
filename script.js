@@ -81,6 +81,8 @@ function hideAllScreens() {
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
   document.getElementById('settings-bereich').style.display = 'none'
+  document.getElementById('email-change-bereich').style.display = 'none'
+  document.getElementById('password-change-bereich').style.display = 'none'
   document.getElementById('conversation-bereich').style.display = 'none'
 }
 
@@ -795,6 +797,29 @@ function openSettings() {
   }
 }
 
+function openEmailChange() {
+  hideAllScreens()
+  document.getElementById('email-change-bereich').style.display = 'block'
+  document.getElementById('current-email-display').value = currentUser.email || ''
+  document.getElementById('new-email').value = ''
+}
+
+function openPasswordChange() {
+  hideAllScreens()
+  document.getElementById('password-change-bereich').style.display = 'block'
+  document.getElementById('old-password').value = ''
+  document.getElementById('new-password').value = ''
+  document.getElementById('repeat-password').value = ''
+}
+
+// Zeigt/versteckt den Inhalt eines Passwortfelds über das zugehörige Augen-Symbol
+function toggleFieldVisibility(inputId, btn) {
+  const input = document.getElementById(inputId)
+  const willShow = input.type === 'password'
+  input.type = willShow ? 'text' : 'password'
+  btn.setAttribute('aria-label', willShow ? 'Passwort verbergen' : 'Passwort anzeigen')
+}
+
 async function sendPasswordReset() {
   const username = document.getElementById('forgot-username').value.trim()
 
@@ -852,20 +877,49 @@ async function changeEmail() {
   } else {
     input.value = ''
     alert('Prüf-Link wurde an die neue Adresse geschickt. Erst nach dem Bestätigen gilt die Änderung.')
+    openSettings()
   }
 }
 
-async function changePassword() {
-  const input = document.getElementById('new-password')
-  const newPassword = input.value
+// Ein einfacher Mindeststandard: 8+ Zeichen, mindestens ein Buchstabe und eine Zahl
+function isStrongPassword(pw) {
+  return pw.length >= 8 && /[a-zA-Z]/.test(pw) && /[0-9]/.test(pw)
+}
 
-  if (newPassword.length < 6) {
-    alert('Das Passwort muss mindestens 6 Zeichen haben.')
+async function changePassword() {
+  const oldPassword = document.getElementById('old-password').value
+  const newPassword = document.getElementById('new-password').value
+  const repeatPassword = document.getElementById('repeat-password').value
+
+  if (!oldPassword) {
+    alert('Bitte dein aktuelles Passwort eingeben.')
+    return
+  }
+
+  if (!isStrongPassword(newPassword)) {
+    alert('Das neue Passwort muss mindestens 8 Zeichen haben, mit Buchstaben und einer Zahl.')
+    return
+  }
+
+  if (newPassword !== repeatPassword) {
+    alert('Die Wiederholung stimmt nicht mit dem neuen Passwort überein.')
     return
   }
 
   const btn = document.getElementById('change-password-btn')
   btn.disabled = true
+
+  // Altes Passwort bestätigen, bevor das neue gesetzt wird
+  const { error: checkError } = await supabaseClient.auth.signInWithPassword({
+    email: currentUser.email,
+    password: oldPassword
+  })
+
+  if (checkError) {
+    btn.disabled = false
+    alert('Das aktuelle Passwort ist falsch.')
+    return
+  }
 
   const { error } = await supabaseClient.auth.updateUser({ password: newPassword })
 
@@ -874,8 +928,11 @@ async function changePassword() {
   if (error) {
     alert('Fehler beim Ändern: ' + error.message)
   } else {
-    input.value = ''
+    document.getElementById('old-password').value = ''
+    document.getElementById('new-password').value = ''
+    document.getElementById('repeat-password').value = ''
     alert('Passwort wurde geändert.')
+    openSettings()
   }
 }
 
@@ -937,32 +994,19 @@ async function loadUsers() {
       name.textContent = u.display_name || 'Ohne Namen'
       row.appendChild(name)
 
-      const genderSelect = document.createElement('select')
-      genderSelect.className = 'gender-select'
-      genderSelect.innerHTML = `
-        <option value="">–</option>
-        <option value="junge">Junge</option>
-        <option value="maedchen">Mädchen</option>
+      const genderToggle = document.createElement('div')
+      genderToggle.className = 'gender-toggle'
+      genderToggle.innerHTML = `
+        <button type="button" class="gender-option${u.gender === 'junge' ? ' active' : ''}" data-value="junge">Junge</button>
+        <button type="button" class="gender-option${u.gender === 'maedchen' ? ' active' : ''}" data-value="maedchen">Mädchen</button>
       `
-      genderSelect.value = u.gender || ''
-      genderSelect.addEventListener('change', () => setGender(u.id, genderSelect.value))
-      row.appendChild(genderSelect)
-
-      const roleSelect = document.createElement('select')
-      roleSelect.className = 'gender-select'
-      roleSelect.innerHTML = `
-        <option value="user">Nutzer</option>
-        <option value="admin">Admin</option>
-      `
-      roleSelect.value = u.role
-      roleSelect.addEventListener('change', () => {
-        if (confirm(`${u.display_name || 'Diese Person'} wirklich zu "${roleSelect.value}" machen?`)) {
-          setRole(u.id, roleSelect.value)
-        } else {
-          roleSelect.value = u.role
-        }
+      genderToggle.querySelectorAll('.gender-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const isActive = btn.classList.contains('active')
+          setGender(u.id, isActive ? null : btn.dataset.value)
+        })
       })
-      row.appendChild(roleSelect)
+      row.appendChild(genderToggle)
 
       const btn = document.createElement('button')
       btn.className = u.is_blocked ? 'unblock-btn' : 'block-btn'
@@ -978,16 +1022,6 @@ async function loadUsers() {
   }
 }
 
-async function setRole(userId, role) {
-  const { error } = await supabaseClient
-    .from('profiles')
-    .update({ role: role })
-    .eq('id', userId)
-
-  if (error) alert('Fehler: ' + error.message)
-  loadUsers()
-}
-
 async function setGender(userId, gender) {
   const { error } = await supabaseClient
     .from('profiles')
@@ -995,6 +1029,7 @@ async function setGender(userId, gender) {
     .eq('id', userId)
 
   if (error) alert('Fehler: ' + error.message)
+  loadUsers()
 }
 
 async function setBlocked(user, blocked) {

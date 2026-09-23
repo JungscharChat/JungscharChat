@@ -93,17 +93,16 @@
         </div>
       </header>
 
-      <div class="input-group">
-        <label for="new-email">Neue E-Mail-Adresse</label>
-        <input type="email" id="new-email" placeholder="neue@adresse.de" autocomplete="email">
-      </div>
-      <button id="change-email-btn" onclick="changeEmail()">E-Mail ändern</button>
-
-      <div class="input-group">
-        <label for="new-password">Neues Passwort</label>
-        <input type="password" id="new-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
-      </div>
-      <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
+      <ul class="settings-menu">
+        <li onclick="openEmailChange()">
+          <span>E-Mail-Adresse ändern</span>
+          <span class="settings-arrow">›</span>
+        </li>
+        <li onclick="openPasswordChange()">
+          <span>Passwort ändern</span>
+          <span class="settings-arrow">›</span>
+        </li>
+      </ul>
 
       <div class="toggle-row">
         <span>Dunkler Modus</span>
@@ -118,6 +117,67 @@
         <ul id="user-list"></ul>
       </div>
 
+    </div>
+
+    <!-- BEREICH 3c: E-MAIL ÄNDERN (eigene Unterseite) -->
+    <div id="email-change-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
+        <div class="user-info">
+          <span>E-Mail-Adresse ändern</span>
+        </div>
+      </header>
+
+      <div class="input-group">
+        <label>Aktuelle E-Mail-Adresse</label>
+        <input type="email" id="current-email-display" disabled>
+      </div>
+
+      <div class="input-group">
+        <label for="new-email">Neue E-Mail-Adresse</label>
+        <input type="email" id="new-email" placeholder="neue@adresse.de" autocomplete="email">
+      </div>
+
+      <button id="change-email-btn" onclick="changeEmail()">E-Mail ändern</button>
+      <p class="settings-hint">Du bekommst einen Bestätigungslink an die neue Adresse. Erst danach gilt die Änderung.</p>
+    </div>
+
+    <!-- BEREICH 3d: PASSWORT ÄNDERN (eigene Unterseite) -->
+    <div id="password-change-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
+        <div class="user-info">
+          <span>Passwort ändern</span>
+        </div>
+      </header>
+
+      <div class="input-group">
+        <label for="old-password">Aktuelles Passwort</label>
+        <div class="password-field">
+          <input type="password" id="old-password" autocomplete="current-password">
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('old-password', this)" aria-label="Passwort anzeigen">👁</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="new-password">Neues Passwort</label>
+        <div class="password-field">
+          <input type="password" id="new-password" placeholder="Mindestens 8 Zeichen, mit Buchstaben und Zahl" autocomplete="new-password">
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('new-password', this)" aria-label="Passwort anzeigen">👁</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="repeat-password">Neues Passwort wiederholen</label>
+        <div class="password-field">
+          <input type="password" id="repeat-password" autocomplete="new-password">
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen">👁</button>
+        </div>
+      </div>
+
+      <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
     </div>
 
     <!-- BEREICH 4: GEÖFFNETER CHAT (Gruppe oder Einzelchat) -->

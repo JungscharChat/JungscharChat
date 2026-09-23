@@ -193,6 +193,40 @@ input:focus-visible {
   font-size: 14px;
 }
 
+.settings-menu {
+  list-style: none;
+}
+
+.settings-menu li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.settings-menu li:hover {
+  color: var(--accent);
+}
+
+.settings-arrow {
+  color: var(--text-secondary);
+  font-size: 18px;
+}
+
+.settings-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+#current-email-display {
+  opacity: 0.7;
+}
+
 .switch {
   position: relative;
   display: inline-block;
@@ -547,14 +581,33 @@ input:focus-visible {
   font-size: 13px;
 }
 
-.gender-select {
-  width: auto;
-  padding: 4px 6px;
-  font-size: 12px;
+.gender-toggle {
+  display: inline-flex;
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: 20px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.gender-option {
+  width: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 20px;
+}
+
+.gender-option:hover {
+  background: transparent;
   color: var(--text-primary);
+}
+
+.gender-option.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .user-row .block-btn {
