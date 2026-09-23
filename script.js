@@ -34,6 +34,27 @@ function initialsOf(name) {
   return (name || '?').trim().charAt(0).toUpperCase()
 }
 
+// Eigenes Pop-up statt der Browser-Meldung, z. B. zum Bestätigen einer Löschung
+let confirmModalCallback = null
+
+function showConfirmModal(text, onConfirm) {
+  confirmModalCallback = onConfirm
+  document.getElementById('confirm-modal-text').textContent = text
+  document.getElementById('confirm-modal').style.display = 'flex'
+}
+
+function confirmModalYes() {
+  document.getElementById('confirm-modal').style.display = 'none'
+  const callback = confirmModalCallback
+  confirmModalCallback = null
+  if (callback) callback()
+}
+
+function confirmModalNo() {
+  document.getElementById('confirm-modal').style.display = 'none'
+  confirmModalCallback = null
+}
+
 // Dunkler/heller Modus, gespeichert im Browser (nur auf diesem Gerät)
 function applyStoredTheme() {
   const stored = localStorage.getItem('theme')
@@ -287,7 +308,7 @@ async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title
   hideAllScreens()
   document.getElementById('conversation-bereich').style.display = 'block'
-  document.getElementById('message-input').value = ''
+  cancelEditingMessage()
 
   // Admins lesen überall mit, schreiben aber nirgends
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
@@ -442,9 +463,8 @@ async function loadReactionsFor(ids) {
     .in('message_id', ids)
 
   ;(data || []).forEach(r => {
-    if (!map[r.message_id]) map[r.message_id] = { up: 0, down: 0, mine: null }
-    if (r.emoji === 'up') map[r.message_id].up++
-    else if (r.emoji === 'down') map[r.message_id].down++
+    if (!map[r.message_id]) map[r.message_id] = { counts: {}, mine: null }
+    map[r.message_id].counts[r.emoji] = (map[r.message_id].counts[r.emoji] || 0) + 1
     if (r.user_id === currentUser.id) map[r.message_id].mine = r.emoji
   })
 
@@ -529,24 +549,22 @@ function renderMessage(msg) {
     meta.appendChild(editedTag)
   }
 
-  if (isOwn && !isAdmin()) {
-    const editBtn = document.createElement('button')
-    editBtn.className = 'msg-delete'
-    editBtn.title = 'Nachricht bearbeiten'
-    editBtn.setAttribute('aria-label', 'Nachricht bearbeiten')
-    editBtn.textContent = '✏️'
-    editBtn.addEventListener('click', () => editMessage(msg.id, msg.text))
-    meta.appendChild(editBtn)
-  }
+  // Drei-Punkte-Menü: Inhalt hängt davon ab, wem die Nachricht gehört
+  const canEdit = isOwn && !isAdmin()
+  const canDelete = isOwn || isAdmin()
+  const canReact = !isAdmin()
 
-  if (isAdmin() || isOwn) {
-    const delBtn = document.createElement('button')
-    delBtn.className = 'msg-delete'
-    delBtn.title = 'Nachricht löschen'
-    delBtn.setAttribute('aria-label', 'Nachricht löschen')
-    delBtn.textContent = '🗑'
-    delBtn.addEventListener('click', () => deleteMessage(msg.id))
-    meta.appendChild(delBtn)
+  if (canEdit || canDelete || canReact) {
+    const menuBtn = document.createElement('button')
+    menuBtn.className = 'msg-menu-btn'
+    menuBtn.title = 'Optionen'
+    menuBtn.setAttribute('aria-label', 'Optionen')
+    menuBtn.textContent = '⋮'
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact })
+    })
+    msgElement.appendChild(menuBtn)
   }
 
   const textEl = document.createElement('div')
@@ -555,21 +573,7 @@ function renderMessage(msg) {
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
-
-  const info = reactionMap[msg.id] || { up: 0, down: 0, mine: null }
-
-  const upBtn = document.createElement('button')
-  upBtn.className = 'reaction-btn' + (info.mine === 'up' ? ' active' : '')
-  upBtn.textContent = '👍 ' + info.up
-  upBtn.addEventListener('click', () => toggleReaction(msg.id, 'up'))
-
-  const downBtn = document.createElement('button')
-  downBtn.className = 'reaction-btn' + (info.mine === 'down' ? ' active' : '')
-  downBtn.textContent = '👎 ' + info.down
-  downBtn.addEventListener('click', () => toggleReaction(msg.id, 'down'))
-
-  reactRow.appendChild(upBtn)
-  reactRow.appendChild(downBtn)
+  renderReactionChips(reactRow, msg.id)
 
   msgElement.appendChild(meta)
   msgElement.appendChild(textEl)
@@ -582,6 +586,99 @@ function renderMessage(msg) {
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
 }
 
+// Reaktions-Chips unter einer Nachricht neu aufbauen (ein Chip pro benutztem Emoji)
+function renderReactionChips(container, messageId) {
+  container.innerHTML = ''
+  const info = reactionMap[messageId] || { counts: {}, mine: null }
+
+  Object.entries(info.counts).forEach(([emoji, count]) => {
+    if (count <= 0) return
+    const chip = document.createElement('button')
+    chip.className = 'reaction-btn' + (info.mine === emoji ? ' active' : '')
+    chip.textContent = emoji + ' ' + count
+    chip.addEventListener('click', () => toggleReaction(messageId, emoji))
+    container.appendChild(chip)
+  })
+}
+
+// Die Emoji, die im Reagieren-Menü zur Auswahl stehen
+const QUICK_EMOJI = ['👍', '👎', '❤️', '😂', '😮', '😢', '🙏']
+
+let openMenuEl = null
+
+function closeMessageMenu() {
+  if (openMenuEl) {
+    openMenuEl.remove()
+    openMenuEl = null
+  }
+}
+
+document.addEventListener('click', closeMessageMenu)
+
+// Öffnet das Drei-Punkte-Menü neben einer Nachricht
+function openMessageMenu(anchorBtn, msg, options) {
+  closeMessageMenu()
+
+  const menu = document.createElement('div')
+  menu.className = 'msg-menu'
+  menu.addEventListener('click', (e) => e.stopPropagation())
+
+  function showMainOptions() {
+    menu.innerHTML = ''
+
+    if (options.canReact) {
+      const reactItem = document.createElement('button')
+      reactItem.className = 'msg-menu-item'
+      reactItem.textContent = 'Reagieren'
+      reactItem.addEventListener('click', showEmojiPicker)
+      menu.appendChild(reactItem)
+    }
+
+    if (options.canEdit) {
+      const editItem = document.createElement('button')
+      editItem.className = 'msg-menu-item'
+      editItem.textContent = 'Bearbeiten'
+      editItem.addEventListener('click', () => {
+        closeMessageMenu()
+        startEditingMessage(msg.id, msg.text)
+      })
+      menu.appendChild(editItem)
+    }
+
+    if (options.canDelete) {
+      const delItem = document.createElement('button')
+      delItem.className = 'msg-menu-item danger'
+      delItem.textContent = 'Löschen'
+      delItem.addEventListener('click', () => {
+        closeMessageMenu()
+        deleteMessage(msg.id)
+      })
+      menu.appendChild(delItem)
+    }
+  }
+
+  function showEmojiPicker() {
+    menu.innerHTML = ''
+    const picker = document.createElement('div')
+    picker.className = 'emoji-picker'
+    QUICK_EMOJI.forEach(emoji => {
+      const btn = document.createElement('button')
+      btn.className = 'emoji-picker-btn'
+      btn.textContent = emoji
+      btn.addEventListener('click', () => {
+        closeMessageMenu()
+        toggleReaction(msg.id, emoji)
+      })
+      picker.appendChild(btn)
+    })
+    menu.appendChild(picker)
+  }
+
+  showMainOptions()
+  anchorBtn.parentElement.appendChild(menu)
+  openMenuEl = menu
+}
+
 // 6. Neue Nachricht senden (Gruppe oder Einzelchat)
 async function sendMessage() {
   const input = document.getElementById('message-input')
@@ -589,6 +686,11 @@ async function sendMessage() {
   const text = input.value.trim()
 
   if (!text || !currentUser) return
+
+  if (editingMessageId) {
+    await saveEditedMessage(text)
+    return
+  }
 
   sendBtn.disabled = true
 
@@ -681,7 +783,7 @@ function removeMessageElement(id) {
 // Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
 async function toggleReaction(messageId, emoji) {
   const table = currentRoom.type === 'dm' ? 'dm_reactions' : 'message_reactions'
-  const info = reactionMap[messageId] || { up: 0, down: 0, mine: null }
+  const info = reactionMap[messageId] || { counts: {}, mine: null }
 
   if (info.mine === emoji) {
     await supabaseClient
@@ -705,33 +807,39 @@ async function toggleReaction(messageId, emoji) {
   }
 
   const updated = await loadReactionsFor([messageId])
-  reactionMap[messageId] = updated[messageId] || { up: 0, down: 0, mine: null }
-  refreshReactionButtons(messageId)
-}
+  reactionMap[messageId] = updated[messageId] || { counts: {}, mine: null }
 
-function refreshReactionButtons(messageId) {
   const row = document.querySelector(`#chat-box [data-id="${messageId}"] .msg-reactions`)
-  if (!row) return
-  const info = reactionMap[messageId] || { up: 0, down: 0, mine: null }
-  const upBtn = row.children[0]
-  const downBtn = row.children[1]
-  upBtn.textContent = '👍 ' + info.up
-  upBtn.className = 'reaction-btn' + (info.mine === 'up' ? ' active' : '')
-  downBtn.textContent = '👎 ' + info.down
-  downBtn.className = 'reaction-btn' + (info.mine === 'down' ? ' active' : '')
+  if (row) renderReactionChips(row, messageId)
 }
 
-// Eigene Nachricht bearbeiten
-async function editMessage(id, oldText) {
-  const newText = prompt('Nachricht bearbeiten:', oldText)
-  if (newText === null) return
+// Eigene Nachricht bearbeiten: der Text wandert unten ins Eingabefeld,
+// "Senden" wird währenddessen zu "Speichern" (wie bei WhatsApp)
+let editingMessageId = null
 
-  const trimmed = newText.trim()
-  if (!trimmed || trimmed === oldText) return
+function startEditingMessage(id, oldText) {
+  editingMessageId = id
+  const input = document.getElementById('message-input')
+  input.value = oldText
+  input.focus()
+  document.getElementById('edit-bar').style.display = 'flex'
+  document.getElementById('send-btn').textContent = 'Speichern'
+}
+
+function cancelEditingMessage() {
+  editingMessageId = null
+  document.getElementById('message-input').value = ''
+  document.getElementById('edit-bar').style.display = 'none'
+  document.getElementById('send-btn').textContent = 'Senden'
+}
+
+async function saveEditedMessage(newText) {
+  const id = editingMessageId
+  const input = document.getElementById('message-input')
 
   const { data, error } = await supabaseClient
     .from(currentTable())
-    .update({ text: trimmed, edited_at: new Date().toISOString() })
+    .update({ text: newText, edited_at: new Date().toISOString() })
     .eq('id', id)
     .select()
 
@@ -741,7 +849,11 @@ async function editMessage(id, oldText) {
     alert('Bearbeiten nicht erlaubt.')
   } else {
     updateMessageElement(data[0])
+    cancelEditingMessage()
+    return
   }
+
+  input.value = newText
 }
 
 // Text (und ggf. den "bearbeitet"-Hinweis) einer bereits angezeigten Nachricht aktualisieren
@@ -757,28 +869,28 @@ function updateMessageElement(msg) {
     const tag = document.createElement('span')
     tag.className = 'msg-edited'
     tag.textContent = '(bearbeitet)'
-    meta.insertBefore(tag, meta.querySelector('.msg-delete'))
+    meta.appendChild(tag)
   }
 }
 
 // 8. Nachricht löschen (eigene Nachricht oder, als Admin, jede Nachricht)
-async function deleteMessage(id) {
-  if (!confirm('Diese Nachricht wirklich löschen?')) return
+function deleteMessage(id) {
+  showConfirmModal('Diese Nachricht wirklich löschen?', async () => {
+    // .select() liefert die gelöschten Zeilen zurück; leer = keine Berechtigung (RLS)
+    const { data, error } = await supabaseClient
+      .from(currentTable())
+      .delete()
+      .eq('id', id)
+      .select()
 
-  // .select() liefert die gelöschten Zeilen zurück; leer = keine Berechtigung (RLS)
-  const { data, error } = await supabaseClient
-    .from(currentTable())
-    .delete()
-    .eq('id', id)
-    .select()
-
-  if (error) {
-    alert('Löschen fehlgeschlagen: ' + error.message)
-  } else if (!data || data.length === 0) {
-    alert('Löschen nicht erlaubt.')
-  } else {
-    removeMessageElement(id)
-  }
+    if (error) {
+      alert('Löschen fehlgeschlagen: ' + error.message)
+    } else if (!data || data.length === 0) {
+      alert('Löschen nicht erlaubt.')
+    } else {
+      removeMessageElement(id)
+    }
+  })
 }
 
 // 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,

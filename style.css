@@ -424,8 +424,9 @@ input:focus-visible {
 }
 
 .msg {
+  position: relative;
   max-width: 78%;
-  padding: 8px 12px;
+  padding: 8px 24px 8px 12px;
   border-radius: var(--radius-bubble);
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -501,25 +502,161 @@ input:focus-visible {
   background: var(--accent-soft);
 }
 
-.msg .msg-delete {
+.msg-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   width: auto;
-  margin-left: auto;
-  padding: 0 2px;
+  padding: 0 4px;
   background: transparent;
-  font-size: 13px;
-  font-weight: normal;
-  line-height: 1.2;
-  opacity: 0.5;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: inherit;
+  opacity: 0.55;
 }
 
-.msg .msg-delete:hover,
-.msg .msg-delete:focus-visible {
+.msg-menu-btn:hover,
+.msg-menu-btn:focus-visible {
   background: transparent;
   opacity: 1;
 }
 
-.msg.own .msg-delete {
-  margin-left: 4px;
+.msg-menu {
+  position: absolute;
+  top: 26px;
+  right: 4px;
+  z-index: 20;
+  min-width: 140px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.msg-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.msg-menu-item:hover {
+  background: var(--bg-input);
+}
+
+.msg-menu-item.danger {
+  color: var(--danger);
+}
+
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+}
+
+.emoji-picker-btn {
+  width: auto;
+  padding: 4px 6px;
+  background: transparent;
+  font-size: 20px;
+  border-radius: 8px;
+}
+
+.emoji-picker-btn:hover {
+  background: var(--bg-input);
+}
+
+/* ===== Bearbeiten-Leiste über dem Eingabefeld ===== */
+#edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-panel-raised);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.edit-bar-cancel {
+  width: auto;
+  padding: 2px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.edit-bar-cancel:hover {
+  background: transparent;
+  color: var(--danger);
+}
+
+/* ===== Eigenes Bestätigungs-Pop-up ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-box {
+  width: 100%;
+  max-width: 340px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.modal-box p {
+  margin-bottom: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-actions button {
+  flex: 1;
+}
+
+.modal-cancel {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.modal-cancel:hover {
+  background: transparent;
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.modal-confirm {
+  background: var(--danger);
+}
+
+.modal-confirm:hover {
+  background: var(--danger-hover);
 }
 
 /* ===== Admin-Bereich ===== */

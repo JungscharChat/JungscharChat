@@ -195,6 +195,12 @@
         <!-- Hier werden die Nachrichten aus Supabase geladen -->
       </div>
 
+      <!-- Zeigt an, wenn gerade eine Nachricht bearbeitet wird -->
+      <div id="edit-bar" style="display: none;">
+        <span>Nachricht bearbeiten</span>
+        <button type="button" class="edit-bar-cancel" onclick="cancelEditingMessage()" aria-label="Bearbeiten abbrechen">✕</button>
+      </div>
+
       <!-- Eingabefeld -->
       <div class="chat-input-area">
         <input type="text" id="message-input" placeholder="Nachricht schreiben..." maxlength="300">
@@ -203,6 +209,17 @@
 
     </div>
 
+  </div>
+
+  <!-- Eigenes Bestätigungs-Pop-up, ersetzt die Browser-eigene Meldung -->
+  <div id="confirm-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <p id="confirm-modal-text"></p>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" onclick="confirmModalNo()">Abbrechen</button>
+        <button type="button" class="modal-confirm" onclick="confirmModalYes()">Ja, löschen</button>
+      </div>
+    </div>
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
