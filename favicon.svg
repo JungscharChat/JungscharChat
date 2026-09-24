@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Sanfter Farbverlauf für den Hintergrund -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17212b" />
+      <stop offset="100%" stop-color="#0e1621" />
+    </linearGradient>
+
+    <!-- Akzent-Farbverlauf für das Chat-Symbol -->
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#64b5f6" />
+      <stop offset="100%" stop-color="#2196f3" />
+    </linearGradient>
+  </defs>
+
+  <!-- Abgerundetes Hintergrund-Quadrat (App-Icon Style) -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)" />
+
+  <!-- Äußerer leuchtender Kreis/Ring -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="url(#iconGrad)" stroke-width="12" opacity="0.2" />
+
+  <!-- Moderne Sprechblase -->
+  <path d="M 140 180 C 140 130, 372 130, 372 180 C 372 270, 290 290, 240 290 L 190 330 L 200 285 C 150 270, 140 220, 140 180 Z" fill="url(#iconGrad)" />
+
+  <!-- Drei Text-Punkte (Chat-Aktivität) -->
+  <circle cx="206" cy="205" r="14" fill="#0e1621" />
+  <circle cx="256" cy="205" r="14" fill="#0e1621" />
+  <circle cx="306" cy="205" r="14" fill="#0e1621" />
+</svg>
