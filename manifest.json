@@ -1,0 +1,21 @@
+{
+  "name": "JungscharChat",
+  "short_name": "JungscharChat",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0e1621",
+  "theme_color": "#0e1621",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
