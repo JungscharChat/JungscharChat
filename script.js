@@ -14,6 +14,7 @@ let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, f�
 let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
 let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemarkierung
 let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für die Chatliste
+let groupReadMarks = {}      // user_id -> Zeitpunkt der letzten Lesemarkierung im offenen Gruppenchat, für "Gelesen von"
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -119,6 +120,7 @@ function showLogin() {
   currentRoom = { type: 'group' }
   latestSeenAt = null
   unreadCounts = {}
+  groupReadMarks = {}
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
@@ -458,9 +460,11 @@ async function openConversation(title) {
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
 
   latestSeenAt = null
+  groupReadMarks = {}
   await loadMessages()
   listenForNewMessages()
   markCurrentRoomRead()
+  loadGroupReadMarks() // "Gelesen von" (nur in Gruppen), muss nicht abgewartet werden
 }
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
@@ -683,6 +687,8 @@ function renderMessage(msg) {
   const row = document.createElement('div')
   row.className = 'msg-row ' + (isOwn ? 'own' : 'other')
   row.dataset.id = msg.id
+  row.dataset.createdAt = msg.created_at
+  row.dataset.senderId = msg.sender_id
 
   if (!isOwn) {
     const avatar = document.createElement('div')
@@ -747,12 +753,106 @@ function renderMessage(msg) {
   msgElement.appendChild(meta)
   msgElement.appendChild(textEl)
   msgElement.appendChild(reactRow)
+
+  // "Gelesen von" unter den eigenen Nachrichten, nur in Gruppen
+  if (isOwn && currentRoom.type === 'group') {
+    const readEl = document.createElement('button')
+    readEl.type = 'button'
+    readEl.className = 'msg-read'
+    msgElement.appendChild(readEl)
+  }
+
   row.appendChild(msgElement)
+  updateReadIndicator(row)
 
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
   const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80
   chatBox.appendChild(row)
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
+}
+
+// ===== "Gelesen von" (nur in Gruppen) =====
+// Grundlage sind die Lesemarkierungen: Wer den Chat bis zu einem Zeitpunkt gelesen hat,
+// hat auch alle Nachrichten davor gesehen.
+
+async function loadGroupReadMarks() {
+  if (currentRoom.type !== 'group') return
+  const key = chatKeyForRoom(currentRoom)
+
+  const { data, error } = await supabaseClient
+    .from('read_marks')
+    .select('user_id, last_read_at')
+    .eq('chat_key', key)
+
+  if (error) {
+    console.error('Lesemarkierungen konnten nicht geladen werden:', error)
+    return
+  }
+  // Zwischenzeitlich in einen anderen Chat gewechselt? Dann verwerfen
+  if (currentRoom.type !== 'group' || chatKeyForRoom(currentRoom) !== key) return
+
+  groupReadMarks = {}
+  ;(data || []).forEach(m => { groupReadMarks[m.user_id] = new Date(m.last_read_at) })
+  refreshReadIndicators()
+}
+
+// Wer hat diese Nachricht schon gesehen? (ohne den Absender selbst und ohne den Admin)
+function readersOf(createdAt, senderId) {
+  const sentAt = new Date(createdAt)
+  return Object.entries(groupReadMarks)
+    .filter(([userId, readAt]) => {
+      if (userId === senderId || readAt < sentAt) return false
+      const info = profileCache[userId]
+      return !(info && info.role === 'admin')
+    })
+    .map(([userId]) => ({
+      id: userId,
+      name: (profileCache[userId] && profileCache[userId].name) || 'Unbekannt'
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function updateReadIndicator(row) {
+  const el = row.querySelector('.msg-read')
+  if (!el) return
+
+  const readers = readersOf(row.dataset.createdAt, row.dataset.senderId)
+  el.textContent = readers.length > 0 ? 'Gelesen von ' + readers.length : 'Noch nicht gelesen'
+  el.disabled = readers.length === 0
+  el.classList.toggle('has-readers', readers.length > 0)
+  el.onclick = readers.length > 0 ? () => openReadersModal(readers) : null
+}
+
+function refreshReadIndicators() {
+  document.querySelectorAll('#chat-box .msg-row.own').forEach(updateReadIndicator)
+}
+
+function openReadersModal(readers) {
+  const list = document.getElementById('readers-list')
+  list.innerHTML = ''
+
+  readers.forEach(r => {
+    const item = document.createElement('li')
+    item.className = 'readers-item'
+
+    const avatar = document.createElement('div')
+    avatar.className = 'readers-avatar'
+    avatar.style.background = avatarColor(r.id)
+    avatar.textContent = initialsOf(r.name)
+
+    const name = document.createElement('span')
+    name.textContent = r.name
+
+    item.appendChild(avatar)
+    item.appendChild(name)
+    list.appendChild(item)
+  })
+
+  document.getElementById('readers-modal').style.display = 'flex'
+}
+
+function closeReadersModal() {
+  document.getElementById('readers-modal').style.display = 'none'
 }
 
 // Reaktions-Chips unter einer Nachricht neu aufbauen (ein Chip pro benutztem Emoji)
@@ -909,7 +1009,7 @@ function listenForNewMessages() {
     currentRoom.type === 'dm-view' ? currentRoom.userA + '-' + currentRoom.userB
     : (currentRoom.userId || currentRoom.groupKey || 'main')
 
-  chatChannel = supabaseClient
+  let channel = supabaseClient
     .channel('room:' + table + ':' + roomKey)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table }, async (payload) => {
       if (!belongsToCurrentRoom(payload.new)) return
@@ -926,7 +1026,21 @@ function listenForNewMessages() {
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: table }, (payload) => {
       removeMessageElement(payload.old.id)
     })
-    .subscribe()
+
+  // In Gruppen zusätzlich mithören, wenn jemand den Chat als gelesen markiert -> "Gelesen von" live aktualisieren
+  if (currentRoom.type === 'group') {
+    const key = chatKeyForRoom(currentRoom)
+    channel = channel.on('postgres_changes',
+      { event: '*', schema: 'public', table: 'read_marks', filter: 'chat_key=eq.' + key },
+      (payload) => {
+        const mark = payload.new
+        if (!mark || !mark.user_id) return
+        groupReadMarks[mark.user_id] = new Date(mark.last_read_at)
+        refreshReadIndicators()
+      })
+  }
+
+  chatChannel = channel.subscribe()
 }
 
 function stopListening() {
