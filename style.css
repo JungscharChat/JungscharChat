@@ -1012,3 +1012,107 @@ input:focus-visible {
   font-size: 14px;
   color: var(--text-secondary);
 }
+
+/* ===== Große PC-Ansicht: Chatliste links, geöffneter Chat rechts (wie Telegram) =====
+   Wird per JavaScript über die Klasse "split-view" am body eingeschaltet (ab 900px Breite,
+   nicht auf den Login-Bildschirmen). Am Handy ändert sich nichts. */
+#chat-placeholder {
+  display: none;
+}
+
+.chat-list-item.active,
+.chat-list-item.active:hover {
+  background: var(--accent-soft);
+}
+
+body.split-view {
+  display: block;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.split-view .app-container {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  padding: 0;
+}
+
+body.split-view .card {
+  grid-row: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  overflow-y: auto;
+}
+
+body.split-view #list-bereich,
+body.split-view #settings-bereich,
+body.split-view #email-change-bereich,
+body.split-view #password-change-bereich,
+body.split-view #admin-contacts-bereich {
+  grid-column: 1;
+  border-width: 0 1px 0 0;
+}
+
+body.split-view #conversation-bereich {
+  grid-column: 2;
+  border-width: 0;
+}
+
+body.split-view .chat-header,
+body.split-view #edit-bar,
+body.split-view .chat-input-area {
+  flex-shrink: 0;
+}
+
+/* Listen und Nachrichtenverlauf füllen die volle Höhe und scrollen für sich */
+body.split-view #chat-list,
+body.split-view #admin-contacts-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+body.split-view #chat-box {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* Die Liste ist immer da, der Zurück-Pfeil im Chat wird nicht gebraucht */
+body.split-view #conversation-bereich .back-btn {
+  display: none;
+}
+
+/* Auf der breiten Fläche sollen Sprechblasen nicht endlos lang werden */
+body.split-view .msg {
+  max-width: min(78%, 640px);
+}
+
+body.split-view #chat-placeholder {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+body.split-view.chat-open #chat-placeholder {
+  display: none;
+}
+
+.placeholder-icon {
+  font-size: 42px;
+  margin-bottom: 10px;
+  opacity: 0.6;
+}

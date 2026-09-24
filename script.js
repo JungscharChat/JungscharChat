@@ -14,6 +14,10 @@ let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, f�
 let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
 let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemarkierung
 let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für die Chatliste
+// Häkchen/Nachrichten-Info (braucht die Tabelle delivery_marks in Supabase). Erst auf true stellen,
+// wenn das SQL dafür ausgeführt wurde - bis dahin ist alles davon ausgeschaltet.
+const READ_RECEIPTS_ENABLED = false
+
 let peerMarks = {}          // user_id -> { readAt, deliveredAt } der anderen Teilnehmer im offenen Chat, für die Häkchen
 let peerChannel = null      // Realtime: Lese-/Zustellmarkierungen der anderen im offenen Chat
 let inboxChannel = null     // Realtime: neue Nachrichten, solange man eingeloggt ist (für "zugestellt")
@@ -104,6 +108,66 @@ async function init() {
   }
 }
 
+// ===== Bildschirme: Handy = ein Bildschirm nach dem anderen, PC = zwei Spalten =====
+// Am PC (ab 900px Breite) bleibt links immer die Chatliste bzw. Einstellungen sichtbar
+// und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
+const desktopQuery = window.matchMedia('(min-width: 900px)')
+const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'reset-bereich']
+const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'email-change-bereich', 'password-change-bereich', 'admin-contacts-bereich']
+const RIGHT_SCREENS = ['conversation-bereich']
+
+function isSplitView() {
+  return document.body.classList.contains('split-view')
+}
+
+function isConversationVisible() {
+  return document.getElementById('conversation-bereich').style.display !== 'none'
+}
+
+function isListVisible() {
+  return document.getElementById('list-bereich').style.display !== 'none'
+}
+
+function showScreen(id) {
+  const split = desktopQuery.matches && !AUTH_SCREENS.includes(id)
+  document.body.classList.toggle('split-view', split)
+
+  if (split) {
+    // Nur die eigene Seite austauschen, die andere bleibt stehen
+    AUTH_SCREENS.forEach(s => { document.getElementById(s).style.display = 'none' })
+    const side = LEFT_SCREENS.includes(id) ? LEFT_SCREENS : RIGHT_SCREENS
+    side.forEach(s => { document.getElementById(s).style.display = 'none' })
+  } else {
+    hideAllScreens()
+  }
+
+  document.getElementById(id).style.display = split ? 'flex' : 'block'
+  document.body.classList.toggle('chat-open', isConversationVisible())
+}
+
+// Fenster wird über/unter die 900px-Grenze gezogen: Ansicht passend neu aufbauen
+function onLayoutChange() {
+  if (!currentUser) return // Login-Ansichten sind immer einspaltig
+
+  const convOpen = isConversationVisible()
+  const leftOpen = LEFT_SCREENS.find(id => document.getElementById(id).style.display !== 'none')
+
+  if (desktopQuery.matches) {
+    // Handy -> PC: Liste links dazuholen, falls vorher nur der Chat zu sehen war
+    showScreen(leftOpen || 'list-bereich')
+    if (!leftOpen) renderChatList()
+    if (convOpen) showScreen('conversation-bereich')
+  } else {
+    // PC -> Handy: nur eins von beidem behalten, und zwar den offenen Chat
+    showScreen(convOpen ? 'conversation-bereich' : (leftOpen || 'list-bereich'))
+  }
+  markActiveListItem()
+}
+
+// Ältere Browser (z. B. Safari vor 14) kennen nur addListener
+if (desktopQuery.addEventListener) desktopQuery.addEventListener('change', onLayoutChange)
+else if (desktopQuery.addListener) desktopQuery.addListener(onLayoutChange)
+
 function hideAllScreens() {
   document.getElementById('login-bereich').style.display = 'none'
   document.getElementById('forgot-bereich').style.display = 'none'
@@ -114,11 +178,13 @@ function hideAllScreens() {
   document.getElementById('password-change-bereich').style.display = 'none'
   document.getElementById('admin-contacts-bereich').style.display = 'none'
   document.getElementById('conversation-bereich').style.display = 'none'
+  document.body.classList.remove('chat-open')
 }
 
 // Login-Ansicht anzeigen und alles Nutzerbezogene aufräumen
 function showLogin() {
   stopListening()
+  stopListListening()
   stopInboxChannel()
   clearTimeout(deliveredTimer)
   deliveredTimer = null
@@ -134,13 +200,11 @@ function showLogin() {
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
-  hideAllScreens()
-  document.getElementById('login-bereich').style.display = 'block'
+  showScreen('login-bereich')
 }
 
 function showPasswordReset() {
-  hideAllScreens()
-  document.getElementById('reset-bereich').style.display = 'block'
+  showScreen('reset-bereich')
 }
 
 // Chatliste anzeigen (Startbildschirm nach dem Login): lädt Profil + Nutzerliste
@@ -173,7 +237,7 @@ async function enterApp(user) {
 
   stopListening()
   hideAllScreens()
-  document.getElementById('list-bereich').style.display = 'block'
+  showScreen('list-bereich')
   document.getElementById('chat-list').innerHTML = '<p class="chat-empty">Lädt …</p>'
 
   await loadProfileCache()
@@ -254,7 +318,7 @@ async function loadChatPreviews() {
 // Wird gemeldet, sobald die App eine Nachricht bekommt (live) oder beim Laden der Chatliste nachholt.
 // Der Admin ist nur Zuschauer und meldet nichts.
 function queueDelivered(key, createdAt) {
-  if (!currentUser || isAdmin() || !createdAt) return
+  if (!READ_RECEIPTS_ENABLED || !currentUser || isAdmin() || !createdAt) return
   const ms = new Date(createdAt).getTime()
   if (ms <= (deliveredReported[key] || 0)) return
   if (deliveredPending[key] && deliveredPending[key].ms >= ms) return
@@ -288,7 +352,7 @@ async function flushDelivered() {
 // Läuft, solange man eingeloggt ist (egal welcher Bildschirm offen ist) und meldet neue Nachrichten als zugestellt
 function startInboxChannel() {
   stopInboxChannel()
-  if (!currentUser || isAdmin()) return
+  if (!READ_RECEIPTS_ENABLED || !currentUser || isAdmin()) return
   const me = currentUser.id
 
   inboxChannel = supabaseClient
@@ -313,12 +377,13 @@ function stopInboxChannel() {
   }
 }
 
-// Kommt die App aus dem Hintergrund zurück, könnten Nachrichten verpasst worden sein: nachholen
+// Kommt die App aus dem Hintergrund zurück (am PC: Tab/Fenster wieder sichtbar), könnte etwas verpasst worden sein
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !currentUser || isAdmin()) return
-  const listVisible = document.getElementById('list-bereich').style.display === 'block'
-  if (listVisible) renderChatList()
-  else loadChatPreviews()
+  if (isListVisible()) renderChatList()
+  else if (READ_RECEIPTS_ENABLED) loadChatPreviews() // Zustellung nachholen
+  // Ein offener Chat: was inzwischen angekommen ist, gilt jetzt als gelesen
+  if (isConversationVisible()) markCurrentRoomRead()
 })
 
 // Welchen Schlüssel ein Chat für die Lesemarkierung hat (kein Schlüssel = wird nicht mitgezählt,
@@ -395,8 +460,9 @@ async function renderChatList() {
     '<div class="chat-list-avatar group-avatar">📌</div>',
     'JungscharChat',
     groupPreviews['main'],
-    unreadCounts['main']
+    unreadFor('main')
   )
+  groupItem.dataset.chatKey = 'main'
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
@@ -407,8 +473,9 @@ async function renderChatList() {
       '<div class="chat-list-avatar group-avatar">👦</div>',
       'Jungs',
       groupPreviews['junge'],
-      unreadCounts['junge']
+      unreadFor('junge')
     )
+    item.dataset.chatKey = 'junge'
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
   }
@@ -420,8 +487,9 @@ async function renderChatList() {
       '<div class="chat-list-avatar group-avatar">👧</div>',
       'Mädels',
       groupPreviews['maedchen'],
-      unreadCounts['maedchen']
+      unreadFor('maedchen')
     )
+    item.dataset.chatKey = 'maedchen'
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
   }
@@ -443,8 +511,9 @@ async function renderChatList() {
       `<div class="chat-list-avatar" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
       name || 'Ohne Namen',
       dmPreviews[id],
-      unreadCounts['dm:' + id]
+      unreadFor('dm:' + id)
     )
+    item.dataset.chatKey = 'dm:' + id
     item.addEventListener('click', () => {
       if (isAdmin()) openAdminContactsFor(id, name)
       else openDirectChat(id, name)
@@ -458,6 +527,27 @@ async function renderChatList() {
     hint.textContent = 'Noch keine anderen Mitglieder da.'
     list.appendChild(hint)
   }
+
+  markActiveListItem()
+}
+
+// Ungelesen-Zähler für die Liste. Der Chat, der am PC gerade rechts offen ist, zeigt keinen.
+function unreadFor(key) {
+  if (isSplitView() && isConversationVisible() && key === chatKeyForRoom(currentRoom)) return 0
+  return unreadCounts[key]
+}
+
+// Am PC den Eintrag des offenen Chats in der Liste hervorheben
+function markActiveListItem() {
+  const openKey = (isSplitView() && isConversationVisible()) ? chatKeyForRoom(currentRoom) : null
+  document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
+    const active = !!openKey && li.dataset.chatKey === openKey
+    li.classList.toggle('active', active)
+    if (active) {
+      const badge = li.querySelector('.unread-badge')
+      if (badge) badge.remove()
+    }
+  })
 }
 
 // Nötig, weil die Namen in der Chatliste per innerHTML gesetzt werden
@@ -467,27 +557,32 @@ function escapeHTML(str) {
   )
 }
 
+// Vor dem Wechsel den bisherigen Chat noch als gelesen markieren (am PC wechselt man direkt von Chat zu Chat)
+function switchRoom(room) {
+  markCurrentRoomRead()
+  currentRoom = room
+}
+
 function openGroupChat() {
-  currentRoom = { type: 'group', groupKey: null }
+  switchRoom({ type: 'group', groupKey: null })
   openConversation('JungscharChat')
 }
 
 function openGenderGroup(groupKey, title) {
-  currentRoom = { type: 'group', groupKey: groupKey }
+  switchRoom({ type: 'group', groupKey: groupKey })
   openConversation(title)
 }
 
 function openDirectChat(userId, name) {
-  currentRoom = { type: 'dm', userId: userId, name: name || 'Ohne Namen' }
+  switchRoom({ type: 'dm', userId: userId, name: name || 'Ohne Namen' })
   openConversation(name || 'Ohne Namen')
 }
 
 // Admin: Liste der Einzelchat-Partner einer bestimmten Person laden (rein lesend)
 async function openAdminContactsFor(userId, name) {
-  stopListening()
+  if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   document.getElementById('admin-contacts-title').textContent = name || 'Ohne Namen'
-  hideAllScreens()
-  document.getElementById('admin-contacts-bereich').style.display = 'block'
+  showScreen('admin-contacts-bereich')
 
   const list = document.getElementById('admin-contacts-list')
   list.innerHTML = '<p class="chat-empty">Lädt …</p>'
@@ -536,14 +631,13 @@ async function openAdminContactsFor(userId, name) {
 
 // Admin: den Einzelchat zwischen zwei anderen Personen rein lesend öffnen
 function openAdminDmView(userA, userB, nameA, nameB) {
-  currentRoom = { type: 'dm-view', userA: userA, userB: userB }
+  switchRoom({ type: 'dm-view', userA: userA, userB: userB })
   openConversation(nameA + ' ↔ ' + nameB)
 }
 
 async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title
-  hideAllScreens()
-  document.getElementById('conversation-bereich').style.display = 'block'
+  showScreen('conversation-bereich')
   cancelEditingMessage()
 
   // Admins lesen überall mit, schreiben aber nirgends
@@ -551,22 +645,23 @@ async function openConversation(title) {
 
   latestSeenAt = null
   peerMarks = {}
+  markActiveListItem() // am PC: den geöffneten Chat links hervorheben
   await loadMessages()
   listenForNewMessages()
-  markCurrentRoomRead()
+  // Am PC bleibt die Liste sichtbar: Ungelesen-Zähler dort nach dem Markieren auffrischen
+  markCurrentRoomRead().then(() => { if (isSplitView()) renderChatList() })
   loadPeerMarks() // Häkchen (Einzelchat und Gruppe), muss nicht abgewartet werden
+  if (desktopQuery.matches && !isAdmin()) document.getElementById('message-input').focus()
 }
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
 function showList() {
-  stopListening()
-  hideAllScreens()
-  document.getElementById('list-bereich').style.display = 'block'
+  // Am Handy verlässt man dabei den Chat; am PC bleibt er rechts einfach offen
+  if (!desktopQuery.matches) stopListening()
+  showScreen('list-bereich')
   // Erst den Chat als gelesen markieren, dann die Liste laden - sonst zählt sie Nachrichten,
   // die man gerade im offenen Chat gesehen hat, noch als ungelesen
-  markCurrentRoomRead()
-    .then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
-    .then(listenForListUpdates)
+  markCurrentRoomRead().then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
 }
 
 // 3. Einloggen
@@ -621,8 +716,7 @@ function togglePasswordVisibility() {
 }
 
 function showForgotScreen() {
-  hideAllScreens()
-  document.getElementById('forgot-bereich').style.display = 'block'
+  showScreen('forgot-bereich')
 }
 
 // 4. Namen aller Profile einmal laden (für die Chatliste und für Realtime-Nachrichten ohne Join)
@@ -823,7 +917,7 @@ function renderMessage(msg) {
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
-  const canInfo = isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
   if (canEdit || canDelete || canReact) {
     const menuBtn = document.createElement('button')
@@ -907,7 +1001,7 @@ function peerEntry(userId) {
 
 async function loadPeerMarks() {
   const key = peerKeyForRoom(currentRoom)
-  if (!key || isAdmin()) return
+  if (!READ_RECEIPTS_ENABLED || !key || isAdmin()) return
   const roomAtStart = currentRoom
 
   let readQuery = supabaseClient.from('read_marks').select('user_id, last_read_at').eq('chat_key', key)
@@ -936,7 +1030,7 @@ async function loadPeerMarks() {
 function startPeerListening() {
   stopPeerListening()
   const key = peerKeyForRoom(currentRoom)
-  if (!key || isAdmin()) return
+  if (!READ_RECEIPTS_ENABLED || !key || isAdmin()) return
 
   function apply(kind, row) {
     if (!row || row.chat_key !== key || row.user_id === currentUser.id) return
@@ -1265,19 +1359,33 @@ function stopListening() {
   stopPeerListening()
 }
 
-// Solange die Chatliste offen ist: bei jeder neuen Nachricht (egal wo) neu sortieren
-// und die Vorschauen/Zähler auffrischen
+// Solange man eingeloggt ist: bei jeder neuen Nachricht (egal wo) die Chatliste neu sortieren
+// und Vorschauen/Zähler auffrischen. Läuft in einem eigenen Channel, damit der offene Chat (am PC
+// neben der Liste) davon unberührt bleibt.
+let listChannel = null
+let listRefreshTimer = null
+
+function scheduleListRefresh() {
+  // Kurz sammeln: kommen mehrere Nachrichten hintereinander, wird nur einmal neu geladen
+  clearTimeout(listRefreshTimer)
+  listRefreshTimer = setTimeout(() => { if (currentUser) renderChatList() }, 250)
+}
+
 function listenForListUpdates() {
-  stopListening()
-  chatChannel = supabaseClient
+  if (listChannel) return
+  listChannel = supabaseClient
     .channel('list-updates')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
-      renderChatList()
-    })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => {
-      renderChatList()
-    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleListRefresh)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, scheduleListRefresh)
     .subscribe()
+}
+
+function stopListListening() {
+  clearTimeout(listRefreshTimer)
+  if (listChannel) {
+    supabaseClient.removeChannel(listChannel)
+    listChannel = null
+  }
 }
 
 // Prüft, ob eine per Realtime hereinkommende Zeile zum gerade geöffneten Chat gehört
@@ -1422,9 +1530,8 @@ function deleteMessage(id) {
 // 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,
 //    bei Admins zusätzlich die Nutzerverwaltung darunter.
 function openSettings() {
-  stopListening()
-  hideAllScreens()
-  document.getElementById('settings-bereich').style.display = 'block'
+  if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
+  showScreen('settings-bereich')
 
   const adminSection = document.getElementById('admin-settings-section')
   if (isAdmin()) {
@@ -1436,15 +1543,13 @@ function openSettings() {
 }
 
 function openEmailChange() {
-  hideAllScreens()
-  document.getElementById('email-change-bereich').style.display = 'block'
+  showScreen('email-change-bereich')
   document.getElementById('current-email-display').value = currentUser.email || ''
   document.getElementById('new-email').value = ''
 }
 
 function openPasswordChange() {
-  hideAllScreens()
-  document.getElementById('password-change-bereich').style.display = 'block'
+  showScreen('password-change-bereich')
   document.getElementById('old-password').value = ''
   document.getElementById('new-password').value = ''
   document.getElementById('repeat-password').value = ''
