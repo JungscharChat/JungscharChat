@@ -116,6 +116,9 @@ function showLogin() {
   currentUser = null
   currentProfile = null
   profileCache = {}
+  currentRoom = { type: 'group' }
+  latestSeenAt = null
+  unreadCounts = {}
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
@@ -168,23 +171,26 @@ async function enterApp(user) {
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
 async function loadChatPreviews() {
-  groupPreviews = {}
-  dmPreviews = {}
-  unreadCounts = {}
+  // Alles erst lokal aufbauen und am Ende in einem Rutsch übernehmen: Laufen zwei Ladevorgänge
+  // gleichzeitig (z. B. zwei Nachrichten kurz hintereinander), würden sich die Zähler sonst doppelt addieren.
+  const me = currentUser.id
+  const newGroupPreviews = {}
+  const newDmPreviews = {}
+  const newUnread = {}
+  const newMarks = {}
 
   const { data: markRows } = await supabaseClient
     .from('read_marks')
     .select('chat_key, last_read_at')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', me)
 
-  readMarks = {}
-  ;(markRows || []).forEach(m => { readMarks[m.chat_key] = new Date(m.last_read_at) })
+  ;(markRows || []).forEach(m => { newMarks[m.chat_key] = new Date(m.last_read_at) })
 
   function countIfUnread(key, row) {
-    if (row.sender_id === currentUser.id) return
-    const lastRead = readMarks[key]
+    if (row.sender_id === me) return
+    const lastRead = newMarks[key]
     if (!lastRead || new Date(row.created_at) > lastRead) {
-      unreadCounts[key] = (unreadCounts[key] || 0) + 1
+      newUnread[key] = (newUnread[key] || 0) + 1
     }
   }
 
@@ -197,7 +203,7 @@ async function loadChatPreviews() {
   if (groupRows) {
     groupRows.forEach(row => {
       const key = row.group_key || 'main'
-      if (!groupPreviews[key]) groupPreviews[key] = row
+      if (!newGroupPreviews[key]) newGroupPreviews[key] = row
       countIfUnread(key, row)
     })
   }
@@ -210,11 +216,17 @@ async function loadChatPreviews() {
 
   if (dmRows) {
     dmRows.forEach(row => {
-      const other = row.sender_id === currentUser.id ? row.recipient_id : row.sender_id
-      if (!dmPreviews[other]) dmPreviews[other] = row
-      countIfUnread('dm:' + other, row)
+      const other = row.sender_id === me ? row.recipient_id : row.sender_id
+      if (!newDmPreviews[other]) newDmPreviews[other] = row
+      // Der Admin sieht alle Einzelchats nur zum Mitlesen - das sind nicht seine eigenen, also kein Zähler
+      if (!isAdmin()) countIfUnread('dm:' + other, row)
     })
   }
+
+  groupPreviews = newGroupPreviews
+  dmPreviews = newDmPreviews
+  unreadCounts = newUnread
+  readMarks = newMarks
 }
 
 // Welchen Schlüssel ein Chat für die Lesemarkierung hat (kein Schlüssel = wird nicht mitgezählt,
@@ -225,16 +237,28 @@ function chatKeyForRoom(room) {
   return null
 }
 
-// Merkt sich, dass der gerade offene Chat bis jetzt gelesen wurde
+// Zeitpunkt (Serverzeit) der neuesten Nachricht, die im gerade offenen Chat angezeigt wurde.
+// Damit wird die Lesemarkierung gesetzt - nicht mit der Uhr des Handys, die falsch gehen kann.
+let latestSeenAt = null
+
+function noteSeenMessage(msg) {
+  if (!msg.created_at) return
+  if (!latestSeenAt || new Date(msg.created_at) > new Date(latestSeenAt)) {
+    latestSeenAt = msg.created_at
+  }
+}
+
+// Merkt sich, dass der gerade offene Chat bis zur neuesten gesehenen Nachricht gelesen wurde
 async function markCurrentRoomRead() {
   const key = chatKeyForRoom(currentRoom)
-  if (!key) return
+  if (!key || !latestSeenAt || !currentUser) return
 
-  await supabaseClient.from('read_marks').upsert({
+  const { error } = await supabaseClient.from('read_marks').upsert({
     user_id: currentUser.id,
     chat_key: key,
-    last_read_at: new Date().toISOString()
+    last_read_at: latestSeenAt
   })
+  if (error) console.error('Lesemarkierung konnte nicht gespeichert werden:', error)
 }
 
 function truncate(text, max) {
@@ -262,8 +286,13 @@ function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
 }
 
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
+let chatListRenderId = 0
+
 async function renderChatList() {
+  const myRenderId = ++chatListRenderId
   await loadChatPreviews()
+  // Zwischenzeitlich ausgeloggt oder schon ein neuerer Ladevorgang gestartet? Dann nichts mehr zeichnen
+  if (!currentUser || myRenderId !== chatListRenderId) return
 
   const list = document.getElementById('chat-list')
   list.innerHTML = ''
@@ -428,6 +457,7 @@ async function openConversation(title) {
   // Admins lesen überall mit, schreiben aber nirgends
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
 
+  latestSeenAt = null
   await loadMessages()
   listenForNewMessages()
   markCurrentRoomRead()
@@ -438,7 +468,11 @@ function showList() {
   stopListening()
   hideAllScreens()
   document.getElementById('list-bereich').style.display = 'block'
-  renderChatList().then(listenForListUpdates) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
+  // Erst den Chat als gelesen markieren, dann die Liste laden - sonst zählt sie Nachrichten,
+  // die man gerade im offenen Chat gesehen hat, noch als ungelesen
+  markCurrentRoomRead()
+    .then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
+    .then(listenForListUpdates)
 }
 
 // 3. Einloggen
@@ -637,6 +671,8 @@ function renderMessage(msg) {
 
   const emptyHint = chatBox.querySelector('.chat-empty')
   if (emptyHint) emptyHint.remove()
+
+  noteSeenMessage(msg)
 
   const isOwn = msg.sender_id === perspectiveUserId()
   const author =
@@ -880,6 +916,8 @@ function listenForNewMessages() {
       const msg = payload.new
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
       renderMessage(msg)
+      // Der Chat ist offen, die Nachricht wird gerade gesehen -> nicht später als ungelesen zählen
+      if (msg.sender_id !== currentUser.id && document.visibilityState === 'visible') markCurrentRoomRead()
     })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: table }, (payload) => {
       if (!belongsToCurrentRoom(payload.new)) return
