@@ -12,6 +12,8 @@ let chatChannel = null      // Realtime-Channel für die aktuell geöffnete Ansi
 let recoveryMode = false    // true, solange ein "Passwort vergessen"-Link verarbeitet wird
 let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, für die Chatliste
 let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
+let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemarkierung
+let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für die Chatliste
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -154,22 +156,41 @@ async function enterApp(user) {
   document.getElementById('user-display-name').innerText =
     profile.display_name || (user.email ? user.email.split('@')[0] : 'Nutzer')
 
-  await loadProfileCache()
-  await renderChatList()
-
   stopListening()
   hideAllScreens()
   document.getElementById('list-bereich').style.display = 'block'
+  document.getElementById('chat-list').innerHTML = '<p class="chat-empty">Lädt …</p>'
+
+  await loadProfileCache()
+  await renderChatList()
+  listenForListUpdates()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
 async function loadChatPreviews() {
   groupPreviews = {}
   dmPreviews = {}
+  unreadCounts = {}
+
+  const { data: markRows } = await supabaseClient
+    .from('read_marks')
+    .select('chat_key, last_read_at')
+    .eq('user_id', currentUser.id)
+
+  readMarks = {}
+  ;(markRows || []).forEach(m => { readMarks[m.chat_key] = new Date(m.last_read_at) })
+
+  function countIfUnread(key, row) {
+    if (row.sender_id === currentUser.id) return
+    const lastRead = readMarks[key]
+    if (!lastRead || new Date(row.created_at) > lastRead) {
+      unreadCounts[key] = (unreadCounts[key] || 0) + 1
+    }
+  }
 
   const { data: groupRows } = await supabaseClient
     .from('messages')
-    .select('text, created_at, group_key')
+    .select('text, created_at, group_key, sender_id')
     .order('created_at', { ascending: false })
     .limit(300)
 
@@ -177,6 +198,7 @@ async function loadChatPreviews() {
     groupRows.forEach(row => {
       const key = row.group_key || 'main'
       if (!groupPreviews[key]) groupPreviews[key] = row
+      countIfUnread(key, row)
     })
   }
 
@@ -190,25 +212,52 @@ async function loadChatPreviews() {
     dmRows.forEach(row => {
       const other = row.sender_id === currentUser.id ? row.recipient_id : row.sender_id
       if (!dmPreviews[other]) dmPreviews[other] = row
+      countIfUnread('dm:' + other, row)
     })
   }
+}
+
+// Welchen Schlüssel ein Chat für die Lesemarkierung hat (kein Schlüssel = wird nicht mitgezählt,
+// z. B. wenn der Admin sich fremde Einzelchats nur ansieht)
+function chatKeyForRoom(room) {
+  if (room.type === 'dm') return 'dm:' + room.userId
+  if (room.type === 'group') return room.groupKey || 'main'
+  return null
+}
+
+// Merkt sich, dass der gerade offene Chat bis jetzt gelesen wurde
+async function markCurrentRoomRead() {
+  const key = chatKeyForRoom(currentRoom)
+  if (!key) return
+
+  await supabaseClient.from('read_marks').upsert({
+    user_id: currentUser.id,
+    chat_key: key,
+    last_read_at: new Date().toISOString()
+  })
 }
 
 function truncate(text, max) {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
-// Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit
-function chatListItemHTML(avatarHTML, name, preview) {
+// Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
+function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
   const previewText = preview ? truncate(preview.text, 34) : 'Noch keine Nachrichten'
   const timeText = preview ? formatTime(preview.created_at) : ''
+  const badge = unreadCount > 0
+    ? `<span class="unread-badge">${unreadCount > 9 ? '9+' : unreadCount}</span>`
+    : ''
   return `
     ${avatarHTML}
     <div class="chat-list-text">
       <div class="chat-list-name">${escapeHTML(name)}</div>
       <div class="chat-list-preview">${escapeHTML(previewText)}</div>
     </div>
-    <div class="chat-list-time">${timeText}</div>
+    <div class="chat-list-time-badge">
+      <div class="chat-list-time">${timeText}</div>
+      ${badge}
+    </div>
   `
 }
 
@@ -224,7 +273,8 @@ async function renderChatList() {
   groupItem.innerHTML = chatListItemHTML(
     '<div class="chat-list-avatar group-avatar">📌</div>',
     'JungscharChat',
-    groupPreviews['main']
+    groupPreviews['main'],
+    unreadCounts['main']
   )
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
@@ -235,7 +285,8 @@ async function renderChatList() {
     item.innerHTML = chatListItemHTML(
       '<div class="chat-list-avatar group-avatar">👦</div>',
       'Jungs',
-      groupPreviews['junge']
+      groupPreviews['junge'],
+      unreadCounts['junge']
     )
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
@@ -247,7 +298,8 @@ async function renderChatList() {
     item.innerHTML = chatListItemHTML(
       '<div class="chat-list-avatar group-avatar">👧</div>',
       'Mädels',
-      groupPreviews['maedchen']
+      groupPreviews['maedchen'],
+      unreadCounts['maedchen']
     )
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
@@ -269,7 +321,8 @@ async function renderChatList() {
     item.innerHTML = chatListItemHTML(
       `<div class="chat-list-avatar" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
       name || 'Ohne Namen',
-      dmPreviews[id]
+      dmPreviews[id],
+      unreadCounts['dm:' + id]
     )
     item.addEventListener('click', () => {
       if (isAdmin()) openAdminContactsFor(id, name)
@@ -310,6 +363,7 @@ function openDirectChat(userId, name) {
 
 // Admin: Liste der Einzelchat-Partner einer bestimmten Person laden (rein lesend)
 async function openAdminContactsFor(userId, name) {
+  stopListening()
   document.getElementById('admin-contacts-title').textContent = name || 'Ohne Namen'
   hideAllScreens()
   document.getElementById('admin-contacts-bereich').style.display = 'block'
@@ -376,6 +430,7 @@ async function openConversation(title) {
 
   await loadMessages()
   listenForNewMessages()
+  markCurrentRoomRead()
 }
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
@@ -383,7 +438,7 @@ function showList() {
   stopListening()
   hideAllScreens()
   document.getElementById('list-bereich').style.display = 'block'
-  renderChatList() // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
+  renderChatList().then(listenForListUpdates) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
 }
 
 // 3. Einloggen
@@ -841,6 +896,21 @@ function stopListening() {
     supabaseClient.removeChannel(chatChannel)
     chatChannel = null
   }
+}
+
+// Solange die Chatliste offen ist: bei jeder neuen Nachricht (egal wo) neu sortieren
+// und die Vorschauen/Zähler auffrischen
+function listenForListUpdates() {
+  stopListening()
+  chatChannel = supabaseClient
+    .channel('list-updates')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+      renderChatList()
+    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => {
+      renderChatList()
+    })
+    .subscribe()
 }
 
 // Prüft, ob eine per Realtime hereinkommende Zeile zum gerade geöffneten Chat gehört
