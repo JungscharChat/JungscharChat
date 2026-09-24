@@ -236,13 +236,14 @@
     </div>
   </div>
 
-  <!-- Pop-up "Gelesen von": Liste der Personen, die eine Gruppen-Nachricht gesehen haben -->
-  <div id="readers-modal" class="modal-overlay" style="display: none;" onclick="closeReadersModal()">
+  <!-- Pop-up "Nachrichten-Info": wer hat die Nachricht gelesen, wem wurde sie zugestellt -->
+  <div id="info-modal" class="modal-overlay" style="display: none;" onclick="closeInfoModal()">
     <div class="modal-box" onclick="event.stopPropagation()">
-      <p class="readers-title">Gelesen von</p>
-      <ul id="readers-list"></ul>
+      <p class="info-title">Nachrichten-Info</p>
+      <p id="info-sent" class="info-sub"></p>
+      <div id="info-sections"></div>
       <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeReadersModal()">Schließen</button>
+        <button type="button" class="modal-cancel" onclick="closeInfoModal()">Schließen</button>
       </div>
     </div>
   </div>

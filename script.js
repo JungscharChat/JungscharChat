@@ -14,7 +14,12 @@ let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, f�
 let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
 let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemarkierung
 let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für die Chatliste
-let groupReadMarks = {}      // user_id -> Zeitpunkt der letzten Lesemarkierung im offenen Gruppenchat, für "Gelesen von"
+let peerMarks = {}          // user_id -> { readAt, deliveredAt } der anderen Teilnehmer im offenen Chat, für die Häkchen
+let peerChannel = null      // Realtime: Lese-/Zustellmarkierungen der anderen im offenen Chat
+let inboxChannel = null     // Realtime: neue Nachrichten, solange man eingeloggt ist (für "zugestellt")
+let deliveredReported = {}  // chat_key -> ms der neuesten Nachricht, für die "zugestellt" schon gemeldet wurde
+let deliveredPending = {}   // chat_key -> { ms, iso }, wartet auf das gebündelte Absenden
+let deliveredTimer = null
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -114,13 +119,18 @@ function hideAllScreens() {
 // Login-Ansicht anzeigen und alles Nutzerbezogene aufräumen
 function showLogin() {
   stopListening()
+  stopInboxChannel()
+  clearTimeout(deliveredTimer)
+  deliveredTimer = null
+  deliveredReported = {}
+  deliveredPending = {}
   currentUser = null
   currentProfile = null
   profileCache = {}
   currentRoom = { type: 'group' }
   latestSeenAt = null
   unreadCounts = {}
-  groupReadMarks = {}
+  peerMarks = {}
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
@@ -169,6 +179,7 @@ async function enterApp(user) {
   await loadProfileCache()
   await renderChatList()
   listenForListUpdates()
+  startInboxChannel()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -180,6 +191,7 @@ async function loadChatPreviews() {
   const newDmPreviews = {}
   const newUnread = {}
   const newMarks = {}
+  const newestFromOthers = {} // chat_key -> created_at der neuesten Nachricht von jemand anderem
 
   const { data: markRows } = await supabaseClient
     .from('read_marks')
@@ -207,6 +219,7 @@ async function loadChatPreviews() {
       const key = row.group_key || 'main'
       if (!newGroupPreviews[key]) newGroupPreviews[key] = row
       countIfUnread(key, row)
+      if (row.sender_id !== me && !newestFromOthers[key]) newestFromOthers[key] = row.created_at
     })
   }
 
@@ -222,14 +235,91 @@ async function loadChatPreviews() {
       if (!newDmPreviews[other]) newDmPreviews[other] = row
       // Der Admin sieht alle Einzelchats nur zum Mitlesen - das sind nicht seine eigenen, also kein Zähler
       if (!isAdmin()) countIfUnread('dm:' + other, row)
+      if (row.sender_id !== me && row.recipient_id === me && !newestFromOthers['dm:' + other]) {
+        newestFromOthers['dm:' + other] = row.created_at
+      }
     })
   }
+
+  // Alles, was hier angekommen ist, gilt als zugestellt (die Absender sehen dann die grauen Doppel-Häkchen)
+  Object.entries(newestFromOthers).forEach(([key, createdAt]) => queueDelivered(key, createdAt))
 
   groupPreviews = newGroupPreviews
   dmPreviews = newDmPreviews
   unreadCounts = newUnread
   readMarks = newMarks
 }
+
+// ===== Zustellung: "diese Nachricht ist auf dem Gerät des Empfängers angekommen" =====
+// Wird gemeldet, sobald die App eine Nachricht bekommt (live) oder beim Laden der Chatliste nachholt.
+// Der Admin ist nur Zuschauer und meldet nichts.
+function queueDelivered(key, createdAt) {
+  if (!currentUser || isAdmin() || !createdAt) return
+  const ms = new Date(createdAt).getTime()
+  if (ms <= (deliveredReported[key] || 0)) return
+  if (deliveredPending[key] && deliveredPending[key].ms >= ms) return
+
+  deliveredPending[key] = { ms: ms, iso: createdAt }
+  // Kurz sammeln, damit mehrere Nachrichten hintereinander nur einen Schreibvorgang auslösen
+  if (!deliveredTimer) deliveredTimer = setTimeout(flushDelivered, 400)
+}
+
+async function flushDelivered() {
+  deliveredTimer = null
+  const batch = deliveredPending
+  deliveredPending = {}
+  if (!currentUser) return
+
+  const rows = Object.entries(batch).map(([key, v]) => ({
+    user_id: currentUser.id,
+    chat_key: key,
+    delivered_at: v.iso
+  }))
+  if (rows.length === 0) return
+
+  const { error } = await supabaseClient.from('delivery_marks').upsert(rows)
+  if (error) {
+    console.error('Zustellung konnte nicht gemeldet werden:', error)
+    return
+  }
+  rows.forEach(r => { deliveredReported[r.chat_key] = new Date(r.delivered_at).getTime() })
+}
+
+// Läuft, solange man eingeloggt ist (egal welcher Bildschirm offen ist) und meldet neue Nachrichten als zugestellt
+function startInboxChannel() {
+  stopInboxChannel()
+  if (!currentUser || isAdmin()) return
+  const me = currentUser.id
+
+  inboxChannel = supabaseClient
+    .channel('inbox:' + me)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+      const row = payload.new
+      if (row.sender_id === me) return
+      queueDelivered(row.group_key || 'main', row.created_at)
+    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload) => {
+      const row = payload.new
+      if (row.recipient_id !== me) return
+      queueDelivered('dm:' + row.sender_id, row.created_at)
+    })
+    .subscribe()
+}
+
+function stopInboxChannel() {
+  if (inboxChannel) {
+    supabaseClient.removeChannel(inboxChannel)
+    inboxChannel = null
+  }
+}
+
+// Kommt die App aus dem Hintergrund zurück, könnten Nachrichten verpasst worden sein: nachholen
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !currentUser || isAdmin()) return
+  const listVisible = document.getElementById('list-bereich').style.display === 'block'
+  if (listVisible) renderChatList()
+  else loadChatPreviews()
+})
 
 // Welchen Schlüssel ein Chat für die Lesemarkierung hat (kein Schlüssel = wird nicht mitgezählt,
 // z. B. wenn der Admin sich fremde Einzelchats nur ansieht)
@@ -460,11 +550,11 @@ async function openConversation(title) {
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
 
   latestSeenAt = null
-  groupReadMarks = {}
+  peerMarks = {}
   await loadMessages()
   listenForNewMessages()
   markCurrentRoomRead()
-  loadGroupReadMarks() // "Gelesen von" (nur in Gruppen), muss nicht abgewartet werden
+  loadPeerMarks() // Häkchen (Einzelchat und Gruppe), muss nicht abgewartet werden
 }
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
@@ -539,7 +629,7 @@ function showForgotScreen() {
 async function loadProfileCache() {
   const { data, error } = await supabaseClient
     .from('profiles')
-    .select('id, display_name, role')
+    .select('id, display_name, role, is_blocked, gender')
 
   if (error) {
     console.error('Fehler beim Laden der Profile:', error)
@@ -547,17 +637,21 @@ async function loadProfileCache() {
   }
 
   profileCache = {}
-  data.forEach(p => { profileCache[p.id] = { name: p.display_name, role: p.role } })
+  data.forEach(p => {
+    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender }
+  })
 }
 
 async function fetchProfileName(userId) {
   const { data } = await supabaseClient
     .from('profiles')
-    .select('display_name, role')
+    .select('display_name, role, is_blocked, gender')
     .eq('id', userId)
     .single()
 
-  if (data) profileCache[userId] = { name: data.display_name, role: data.role }
+  if (data) {
+    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender }
+  }
 }
 
 // Ob gerade ein Einzelchat offen ist - entweder der eigene, oder (Admin) der fremd eingesehene
@@ -728,6 +822,8 @@ function renderMessage(msg) {
   const canEdit = isOwn && !isAdmin()
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
+  // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
+  const canInfo = isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
   if (canEdit || canDelete || canReact) {
     const menuBtn = document.createElement('button')
@@ -737,7 +833,7 @@ function renderMessage(msg) {
     menuBtn.textContent = '⋮'
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact })
+      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact, canInfo })
     })
     msgElement.appendChild(menuBtn)
   }
@@ -754,16 +850,21 @@ function renderMessage(msg) {
   msgElement.appendChild(textEl)
   msgElement.appendChild(reactRow)
 
-  // "Gelesen von" unter den eigenen Nachrichten, nur in Gruppen
-  if (isOwn && currentRoom.type === 'group') {
-    const readEl = document.createElement('button')
-    readEl.type = 'button'
-    readEl.className = 'msg-read'
-    msgElement.appendChild(readEl)
+  // Häkchen unter den eigenen Nachrichten (1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen)
+  if (canInfo) {
+    const ticksEl = document.createElement('button')
+    ticksEl.type = 'button'
+    ticksEl.className = 'msg-ticks sent'
+    ticksEl.addEventListener('click', (e) => {
+      e.stopPropagation()
+      openMessageInfo(msg.created_at)
+    })
+    msgElement.appendChild(ticksEl)
+    row.classList.add('has-ticks')
   }
 
   row.appendChild(msgElement)
-  updateReadIndicator(row)
+  updateTicks(row)
 
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
   const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80
@@ -771,88 +872,202 @@ function renderMessage(msg) {
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
 }
 
-// ===== "Gelesen von" (nur in Gruppen) =====
-// Grundlage sind die Lesemarkierungen: Wer den Chat bis zu einem Zeitpunkt gelesen hat,
-// hat auch alle Nachrichten davor gesehen.
+// ===== Häkchen und Nachrichten-Info =====
+// Grundlage sind zwei Markierungen pro Person und Chat:
+//  - zugestellt (delivery_marks): die App der Person hat die Nachricht bekommen
+//  - gelesen (read_marks): die Person hat den Chat bis zu dieser Nachricht gesehen
+// Einzelchat: 1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen.
+// Gruppe: 2 grau = an alle zugestellt, 2 blau = von allen gelesen (bis dahin 1 grau).
 
-async function loadGroupReadMarks() {
-  if (currentRoom.type !== 'group') return
-  const key = chatKeyForRoom(currentRoom)
-
-  const { data, error } = await supabaseClient
-    .from('read_marks')
-    .select('user_id, last_read_at')
-    .eq('chat_key', key)
-
-  if (error) {
-    console.error('Lesemarkierungen konnten nicht geladen werden:', error)
-    return
-  }
-  // Zwischenzeitlich in einen anderen Chat gewechselt? Dann verwerfen
-  if (currentRoom.type !== 'group' || chatKeyForRoom(currentRoom) !== key) return
-
-  groupReadMarks = {}
-  ;(data || []).forEach(m => { groupReadMarks[m.user_id] = new Date(m.last_read_at) })
-  refreshReadIndicators()
+// Unter welchem Schlüssel die ANDEREN ihre Markierungen für diesen Chat speichern
+function peerKeyForRoom(room) {
+  if (room.type === 'group') return room.groupKey || 'main'
+  if (room.type === 'dm') return 'dm:' + currentUser.id // aus Sicht des Partners ist "der andere" ich
+  return null
 }
 
-// Wer hat diese Nachricht schon gesehen? (ohne den Absender selbst und ohne den Admin)
-function readersOf(createdAt, senderId) {
-  const sentAt = new Date(createdAt)
-  return Object.entries(groupReadMarks)
-    .filter(([userId, readAt]) => {
-      if (userId === senderId || readAt < sentAt) return false
-      const info = profileCache[userId]
-      return !(info && info.role === 'admin')
+// Wer zählt bei einer Nachricht als Empfänger? (Gruppe: alle Mitglieder außer mir, Admin und Gesperrten)
+function recipientIdsForRoom() {
+  if (currentRoom.type === 'dm') return [currentRoom.userId]
+  if (currentRoom.type !== 'group') return []
+
+  const key = currentRoom.groupKey || 'main'
+  return Object.entries(profileCache)
+    .filter(([id, info]) => {
+      if (id === currentUser.id || info.role === 'admin' || info.blocked) return false
+      return key === 'main' || info.gender === key
     })
-    .map(([userId]) => ({
-      id: userId,
-      name: (profileCache[userId] && profileCache[userId].name) || 'Unbekannt'
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(([id]) => id)
 }
 
-function updateReadIndicator(row) {
-  const el = row.querySelector('.msg-read')
-  if (!el) return
-
-  const readers = readersOf(row.dataset.createdAt, row.dataset.senderId)
-  el.textContent = readers.length > 0 ? 'Gelesen von ' + readers.length : 'Noch nicht gelesen'
-  el.disabled = readers.length === 0
-  el.classList.toggle('has-readers', readers.length > 0)
-  el.onclick = readers.length > 0 ? () => openReadersModal(readers) : null
+function peerEntry(userId) {
+  if (!peerMarks[userId]) peerMarks[userId] = { readAt: null, deliveredAt: null }
+  return peerMarks[userId]
 }
 
-function refreshReadIndicators() {
-  document.querySelectorAll('#chat-box .msg-row.own').forEach(updateReadIndicator)
+async function loadPeerMarks() {
+  const key = peerKeyForRoom(currentRoom)
+  if (!key || isAdmin()) return
+  const roomAtStart = currentRoom
+
+  let readQuery = supabaseClient.from('read_marks').select('user_id, last_read_at').eq('chat_key', key)
+  let deliveredQuery = supabaseClient.from('delivery_marks').select('user_id, delivered_at').eq('chat_key', key)
+  if (roomAtStart.type === 'dm') {
+    readQuery = readQuery.eq('user_id', roomAtStart.userId)
+    deliveredQuery = deliveredQuery.eq('user_id', roomAtStart.userId)
+  }
+
+  const [readRes, deliveredRes] = await Promise.all([readQuery, deliveredQuery])
+  // Zwischenzeitlich in einen anderen Chat gewechselt? Dann verwerfen
+  if (currentRoom !== roomAtStart) return
+
+  peerMarks = {}
+  if (readRes.error) console.error('Lesemarkierungen konnten nicht geladen werden:', readRes.error)
+  else (readRes.data || []).forEach(m => { peerEntry(m.user_id).readAt = new Date(m.last_read_at) })
+
+  if (deliveredRes.error) console.error('Zustellmarkierungen konnten nicht geladen werden:', deliveredRes.error)
+  else (deliveredRes.data || []).forEach(m => { peerEntry(m.user_id).deliveredAt = new Date(m.delivered_at) })
+
+  refreshTicks()
 }
 
-function openReadersModal(readers) {
-  const list = document.getElementById('readers-list')
-  list.innerHTML = ''
+// Neue Markierungen der anderen live mithören - in einem eigenen Channel, damit die Nachrichten
+// selbst auch dann weiterlaufen, falls hier mal etwas nicht klappt
+function startPeerListening() {
+  stopPeerListening()
+  const key = peerKeyForRoom(currentRoom)
+  if (!key || isAdmin()) return
 
-  readers.forEach(r => {
-    const item = document.createElement('li')
-    item.className = 'readers-item'
+  function apply(kind, row) {
+    if (!row || row.chat_key !== key || row.user_id === currentUser.id) return
+    if (currentRoom.type === 'dm' && row.user_id !== currentRoom.userId) return
+    const entry = peerEntry(row.user_id)
+    if (kind === 'read') entry.readAt = new Date(row.last_read_at)
+    else entry.deliveredAt = new Date(row.delivered_at)
+    refreshTicks()
+  }
 
-    const avatar = document.createElement('div')
-    avatar.className = 'readers-avatar'
-    avatar.style.background = avatarColor(r.id)
-    avatar.textContent = initialsOf(r.name)
+  peerChannel = supabaseClient
+    .channel('peers:' + key)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'read_marks' }, (p) => apply('read', p.new))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_marks' }, (p) => apply('delivered', p.new))
+    .subscribe()
+}
 
-    const name = document.createElement('span')
-    name.textContent = r.name
+function stopPeerListening() {
+  if (peerChannel) {
+    supabaseClient.removeChannel(peerChannel)
+    peerChannel = null
+  }
+}
 
-    item.appendChild(avatar)
-    item.appendChild(name)
-    list.appendChild(item)
+// Für eine Nachricht: wer hat sie gelesen, wem wurde sie zugestellt, wer hat sie noch nicht
+function deliveryListsFor(createdAt) {
+  const sentAt = new Date(createdAt)
+  const lists = { read: [], delivered: [], pending: [] }
+
+  recipientIdsForRoom().forEach(id => {
+    const marks = peerMarks[id] || {}
+    const person = { id: id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt' }
+    if (marks.readAt && marks.readAt >= sentAt) lists.read.push(person)
+    else if (marks.deliveredAt && marks.deliveredAt >= sentAt) lists.delivered.push(person)
+    else lists.pending.push(person)
   })
 
-  document.getElementById('readers-modal').style.display = 'flex'
+  Object.values(lists).forEach(l => l.sort((a, b) => a.name.localeCompare(b.name)))
+  return lists
 }
 
-function closeReadersModal() {
-  document.getElementById('readers-modal').style.display = 'none'
+function tickStatus(createdAt) {
+  const lists = deliveryListsFor(createdAt)
+  const total = lists.read.length + lists.delivered.length + lists.pending.length
+  if (total === 0 || lists.pending.length > 0) return 'sent'
+  return lists.delivered.length > 0 ? 'delivered' : 'read'
+}
+
+const TICK_LABELS = { sent: 'Gesendet', delivered: 'Zugestellt', read: 'Gelesen' }
+
+// Ein Häkchen (gesendet) oder zwei Häkchen (zugestellt/gelesen) als kleine Grafik
+function tickSVG(double) {
+  const check = 'M1 5.8l3.2 3.2L10.6 1.8'
+  const second = 'M5.6 5.8l3.2 3.2L15.2 1.8'
+  return '<svg viewBox="0 0 17 11" width="17" height="11" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="' + check + '"/>' + (double ? '<path d="' + second + '"/>' : '') + '</svg>'
+}
+
+function updateTicks(row) {
+  const el = row.querySelector('.msg-ticks')
+  if (!el) return
+  const status = tickStatus(row.dataset.createdAt)
+  el.className = 'msg-ticks ' + status
+  el.innerHTML = tickSVG(status !== 'sent')
+  el.setAttribute('aria-label', TICK_LABELS[status] + ' - Info öffnen')
+}
+
+function refreshTicks() {
+  document.querySelectorAll('#chat-box .msg-row.has-ticks').forEach(updateTicks)
+}
+
+// Pop-up "Nachrichten-Info": wer hat die Nachricht gelesen, wem wurde sie zugestellt, wer noch nicht
+function openMessageInfo(createdAt) {
+  const lists = deliveryListsFor(createdAt)
+  document.getElementById('info-sent').textContent = 'Gesendet: ' + formatTime(createdAt)
+
+  const box = document.getElementById('info-sections')
+  box.innerHTML = ''
+
+  const sections = [
+    { title: 'Gelesen von', people: lists.read, status: 'read' },
+    { title: 'Zugestellt an', people: lists.delivered, status: 'delivered' },
+    { title: 'Noch nicht zugestellt an', people: lists.pending, status: 'sent' }
+  ]
+
+  sections.forEach(section => {
+    if (section.people.length === 0) return
+
+    const head = document.createElement('div')
+    head.className = 'info-section-title ' + section.status
+    const icon = document.createElement('span')
+    icon.className = 'info-tick'
+    icon.innerHTML = tickSVG(section.status !== 'sent')
+    head.appendChild(icon)
+    head.appendChild(document.createTextNode(section.title + ' (' + section.people.length + ')'))
+    box.appendChild(head)
+
+    const list = document.createElement('ul')
+    list.className = 'info-list'
+    section.people.forEach(person => {
+      const item = document.createElement('li')
+      item.className = 'info-item'
+
+      const avatar = document.createElement('div')
+      avatar.className = 'info-avatar'
+      avatar.style.background = avatarColor(person.id)
+      avatar.textContent = initialsOf(person.name)
+
+      const name = document.createElement('span')
+      name.textContent = person.name
+
+      item.appendChild(avatar)
+      item.appendChild(name)
+      list.appendChild(item)
+    })
+    box.appendChild(list)
+  })
+
+  if (box.children.length === 0) {
+    const empty = document.createElement('p')
+    empty.className = 'info-empty'
+    empty.textContent = 'Noch keine Empfänger.'
+    box.appendChild(empty)
+  }
+
+  document.getElementById('info-modal').style.display = 'flex'
+}
+
+function closeInfoModal() {
+  document.getElementById('info-modal').style.display = 'none'
 }
 
 // Reaktions-Chips unter einer Nachricht neu aufbauen (ein Chip pro benutztem Emoji)
@@ -901,6 +1116,17 @@ function openMessageMenu(anchorBtn, msg, options) {
       reactItem.textContent = 'Reagieren'
       reactItem.addEventListener('click', showEmojiPicker)
       menu.appendChild(reactItem)
+    }
+
+    if (options.canInfo) {
+      const infoItem = document.createElement('button')
+      infoItem.className = 'msg-menu-item'
+      infoItem.textContent = 'Info'
+      infoItem.addEventListener('click', () => {
+        closeMessageMenu()
+        openMessageInfo(msg.created_at)
+      })
+      menu.appendChild(infoItem)
     }
 
     if (options.canEdit) {
@@ -1027,20 +1253,8 @@ function listenForNewMessages() {
       removeMessageElement(payload.old.id)
     })
 
-  // In Gruppen zusätzlich mithören, wenn jemand den Chat als gelesen markiert -> "Gelesen von" live aktualisieren
-  if (currentRoom.type === 'group') {
-    const key = chatKeyForRoom(currentRoom)
-    channel = channel.on('postgres_changes',
-      { event: '*', schema: 'public', table: 'read_marks', filter: 'chat_key=eq.' + key },
-      (payload) => {
-        const mark = payload.new
-        if (!mark || !mark.user_id) return
-        groupReadMarks[mark.user_id] = new Date(mark.last_read_at)
-        refreshReadIndicators()
-      })
-  }
-
   chatChannel = channel.subscribe()
+  startPeerListening()
 }
 
 function stopListening() {
@@ -1048,6 +1262,7 @@ function stopListening() {
     supabaseClient.removeChannel(chatChannel)
     chatChannel = null
   }
+  stopPeerListening()
 }
 
 // Solange die Chatliste offen ist: bei jeder neuen Nachricht (egal wo) neu sortieren

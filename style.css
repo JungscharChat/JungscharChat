@@ -909,68 +909,106 @@ input:focus-visible {
   border-radius: 10px;
 }
 
-/* ===== "Gelesen von" in Gruppen ===== */
-.msg-read {
-  display: block;
-  width: auto;
-  margin: 4px 0 0 auto;
-  padding: 0;
-  background: transparent;
-  border: none;
-  font-size: 11px;
-  font-weight: 400;
-  color: rgba(234, 242, 250, 0.7);
-  cursor: default;
+/* ===== Häkchen unter eigenen Nachrichten ===== */
+.msg-row.has-ticks {
+  margin-bottom: 16px;
 }
 
-.msg-read.has-readers {
+.msg-ticks {
+  position: absolute;
+  right: 2px;
+  bottom: -17px;
+  width: auto;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  line-height: 0;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
-.msg-read.has-readers:hover {
+.msg-ticks:hover {
   background: transparent;
-  text-decoration: underline;
 }
 
-.msg-read:disabled {
-  opacity: 0.8;
+.msg-ticks.read {
+  color: var(--accent);
 }
 
-.modal-box .readers-title {
-  margin-bottom: 12px;
+.msg-ticks svg {
+  display: block;
+}
+
+/* ===== Pop-up "Nachrichten-Info" ===== */
+.modal-box .info-title {
+  margin-bottom: 4px;
   font-weight: 600;
 }
 
-#readers-list {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
+.modal-box .info-sub {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#info-sections {
   max-height: 50vh;
+  margin-bottom: 16px;
   overflow-y: auto;
 }
 
-.readers-item {
+.info-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.info-tick {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.info-section-title.read .info-tick {
+  color: var(--accent);
+}
+
+.info-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.info-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 0;
+  padding: 7px 0;
   border-bottom: 1px solid var(--border-subtle);
   font-size: 14px;
 }
 
-.readers-item:last-child {
+.info-item:last-child {
   border-bottom: none;
 }
 
-.readers-avatar {
+.info-avatar {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+}
+
+.info-empty {
+  font-size: 14px;
+  color: var(--text-secondary);
 }
