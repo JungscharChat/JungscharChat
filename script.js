@@ -470,6 +470,7 @@ async function renderChatList() {
   )
   groupItem.dataset.chatKey = 'main'
   groupItem.dataset.tabs = 'alle gruppen'
+  groupItem.dataset.name = 'JungscharChat'
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
@@ -484,6 +485,7 @@ async function renderChatList() {
     )
     item.dataset.chatKey = 'junge'
     item.dataset.tabs = 'alle gruppen junge'
+    item.dataset.name = 'Jungs'
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
   }
@@ -499,6 +501,7 @@ async function renderChatList() {
     )
     item.dataset.chatKey = 'maedchen'
     item.dataset.tabs = 'alle gruppen maedchen'
+    item.dataset.name = 'Mädels'
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
   }
@@ -523,7 +526,8 @@ async function renderChatList() {
       unreadFor('dm:' + id)
     )
     item.dataset.chatKey = 'dm:' + id
-    item.dataset.tabs = 'alle'
+    item.dataset.tabs = 'alle' + (info.gender ? ' ' + info.gender : '')
+    item.dataset.name = name || ''
     item.addEventListener('click', () => {
       if (isAdmin()) openAdminContactsFor(id, name)
       else openDirectChat(id, name)
@@ -558,29 +562,34 @@ function renderChatTabs() {
   })
 }
 
-// Chateinträge passend zum gewählten Reiter ein-/ausblenden
+// Chateinträge passend zum gewählten Reiter UND zur Suchleiste ein-/ausblenden
 function applyChatTabFilter() {
+  const searchEl = document.getElementById('chat-search')
+  const query = searchEl ? searchEl.value.trim().toLowerCase() : ''
   let visibleCount = 0
+
   document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
     const tabs = (li.dataset.tabs || 'alle').split(' ')
-    const show = tabs.includes(activeChatTab)
+    const matchesTab = tabs.includes(activeChatTab)
+    const matchesSearch = !query || (li.dataset.name || '').toLowerCase().includes(query)
+    const show = matchesTab && matchesSearch
     li.style.display = show ? '' : 'none'
     if (show) visibleCount++
   })
 
   const hint = document.querySelector('#chat-list .chat-empty')
-  if (hint) hint.style.display = activeChatTab === 'alle' ? '' : 'none'
+  if (hint) hint.style.display = (activeChatTab === 'alle' && !query) ? '' : 'none'
 
-  // Reiter ohne eigene Chats (z. B. "Mädels" bei einem Jungen) zeigen einen Hinweis statt einer leeren Liste
+  // Nichts zu sehen: entweder weil der Reiter für die Person nichts hat, oder weil die Suche nichts findet
   let emptyTabHint = document.getElementById('chat-tab-empty-hint')
-  if (visibleCount === 0 && !(hint && activeChatTab === 'alle')) {
+  if (visibleCount === 0 && !(hint && activeChatTab === 'alle' && !query)) {
     if (!emptyTabHint) {
       emptyTabHint = document.createElement('p')
       emptyTabHint.id = 'chat-tab-empty-hint'
       emptyTabHint.className = 'chat-empty'
       document.getElementById('chat-list').appendChild(emptyTabHint)
     }
-    emptyTabHint.textContent = 'Hier gibt es für dich nichts zu sehen.'
+    emptyTabHint.textContent = query ? 'Nichts gefunden.' : 'Hier gibt es für dich nichts zu sehen.'
   } else if (emptyTabHint) {
     emptyTabHint.remove()
   }

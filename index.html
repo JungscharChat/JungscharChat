@@ -116,6 +116,11 @@
         </div>
       </header>
 
+      <!-- Suchleiste: filtert die Chatliste nach Namen, wirkt zusammen mit den Reitern darunter -->
+      <div class="chat-search-wrap">
+        <input type="text" id="chat-search" placeholder="Suchen" oninput="applyChatTabFilter()">
+      </div>
+
       <!-- Reiter: Alle Chats, Gruppen, Jungs, Mädels. Welche davon zu sehen sind, hängt davon ab,
            ob man Admin ist oder zu welcher Gruppe man gehört - genau wie bei den Chats selbst. -->
       <div id="chat-tabs" class="chat-tabs">

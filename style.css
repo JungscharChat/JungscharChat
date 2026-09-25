@@ -1181,6 +1181,21 @@ body.split-view.chat-open #chat-placeholder {
 }
 
 /* ===== Reiter über der Chatliste (Alle Chats / Gruppen / Jungs / Mädels) ===== */
+/* ===== Suchleiste über der Chatliste ===== */
+.chat-search-wrap {
+  margin-top: 10px;
+}
+
+.chat-search-wrap input {
+  width: 100%;
+  padding: 9px 14px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
 .chat-tabs {
   display: flex;
   justify-content: space-between;
