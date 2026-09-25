@@ -6,10 +6,44 @@
   <title>JungscharChat</title>
   <meta name="theme-color" content="#0e1621">
   
-  <!-- Das eigene CSS -->
-  <link rel="stylesheet" href="style.css">
+  <!-- App-Verhalten auf iPads / Mobilgeräten -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="JungscharChat">
 
-  <!-- Supabase JS Library -->
+  <!-- Beschreibungen & Metadaten für Google -->
+  <meta name="description" content="Der offizielle JungscharChat für Gifhorn. Melde dich an und schreibe mit deinen Freunden.">
+  <meta name="keywords" content="JungscharChat, Jungschar, Gifhorn, Chat, Messenger">
+  <meta name="robots" content="index, follow">
+
+  <meta property="og:site_name" content="JungscharChat">
+  <meta property="og:title" content="JungscharChat – Gifhorn">
+  <meta property="og:description" content="Der offizielle JungscharChat für Gifhorn.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://myjungschar.github.io/chat/">
+
+  <!-- Icons & Web App Manifest -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Strukturierte Daten -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "JungscharChat",
+    "alternateName": ["Jungschar Chat Gifhorn", "Jungschar Chat"],
+    "url": "https://myjungschar.github.io/chat/",
+    "publisher": {
+      "@type": "Organization",
+      "name": "ECBG Gifhorn",
+      "url": "https://ecbg.de"
+    }
+  }
+  </script>
+
+  <!-- CSS & Supabase -->
+  <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji: zeichnet Emojis überall als kleine Bilder statt als Systemzeichen -
