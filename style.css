@@ -1120,22 +1120,26 @@ body.split-view.chat-open #chat-placeholder {
 /* ===== Reiter über der Chatliste (Alle Chats / Gruppen / Jungs / Mädels) ===== */
 .chat-tabs {
   display: flex;
+  justify-content: flex-start;
   gap: 6px;
   padding: 10px 16px 4px;
-  overflow-x: auto;
 }
 
 .chat-tab {
-  flex-shrink: 0;
-  padding: 6px 14px;
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 6px 12px;
   background: var(--bg-input);
   border: none;
   border-radius: 999px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chat-tab:hover {
