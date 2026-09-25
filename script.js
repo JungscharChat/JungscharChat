@@ -24,6 +24,8 @@ let inboxChannel = null     // Realtime: neue Nachrichten, solange man eingelogg
 let deliveredReported = {}  // chat_key -> ms der neuesten Nachricht, für die "zugestellt" schon gemeldet wurde
 let deliveredPending = {}   // chat_key -> { ms, iso }, wartet auf das gebündelte Absenden
 let deliveredTimer = null
+let pollsMap = {}           // poll_id -> Umfrage samt Stimmen, für den gerade offenen Chat
+let pollsChannel = null     // Realtime: neue Umfragen und Stimmen im offenen Chat
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -197,6 +199,7 @@ function showLogin() {
   latestSeenAt = null
   unreadCounts = {}
   peerMarks = {}
+  pollsMap = {}
 
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
@@ -694,6 +697,7 @@ async function openConversation(title) {
   markActiveListItem() // am PC: den geöffneten Chat links hervorheben
   await loadMessages()
   listenForNewMessages()
+  startPollListening()
   // Am PC bleibt die Liste sichtbar: Ungelesen-Zähler dort nach dem Markieren auffrischen
   markCurrentRoomRead().then(() => { if (isSplitView()) renderChatList() })
   loadPeerMarks() // Häkchen (Einzelchat und Gruppe), muss nicht abgewartet werden
@@ -845,15 +849,415 @@ async function loadMessages() {
   const chatBox = document.getElementById('chat-box')
   chatBox.innerHTML = ''
 
-  if (messages.length === 0) {
-    reactionMap = {}
-    showEmptyHint()
+  reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
+  messages.forEach(msg => renderMessage(msg))
+  await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
+
+  if (chatBox.children.length === 0) showEmptyHint()
+  applyEmojiImages(chatBox)
+  chatBox.scrollTop = chatBox.scrollHeight
+}
+
+// ===== Umfragen =====
+// Umfragen liegen in einer eigenen Tabelle (nicht bei den Nachrichten) und werden beim Laden
+// und live per Realtime dazwischengemischt - einsortiert nach ihrem Erstellungszeitpunkt.
+
+// Unter welchem Schlüssel eine Umfrage in diesem Chat gespeichert wird/wurde
+function pollChatKey(room) {
+  if (room.type === 'group') return room.groupKey || 'main'
+  if (room.type === 'dm') return 'dm:' + [currentUser.id, room.userId].sort().join(':')
+  if (room.type === 'dm-view') return 'dm:' + [room.userA, room.userB].sort().join(':')
+  return null
+}
+
+// Umfragen erstellen/abstimmen darf man in eigenen Chats, aber nicht im rein lesenden Admin-Drilldown
+function canUsePolls() {
+  return !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+}
+
+async function loadPollsForRoom() {
+  pollsMap = {}
+  const key = pollChatKey(currentRoom)
+  if (!key) return
+
+  const { data: polls, error } = await supabaseClient
+    .from('polls')
+    .select('*')
+    .eq('chat_key', key)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('Umfragen konnten nicht geladen werden:', error)
+    return
+  }
+  if (!polls || polls.length === 0) return
+
+  const { data: votes } = await supabaseClient
+    .from('poll_votes')
+    .select('poll_id, option_index, user_id')
+    .in('poll_id', polls.map(p => p.id))
+
+  polls.forEach(p => { pollsMap[p.id] = { ...p, votesByOption: {} } })
+  ;(votes || []).forEach(v => {
+    const poll = pollsMap[v.poll_id]
+    if (!poll) return
+    if (!poll.votesByOption[v.option_index]) poll.votesByOption[v.option_index] = []
+    poll.votesByOption[v.option_index].push(v.user_id)
+  })
+
+  polls.forEach(p => insertPollRow(pollsMap[p.id]))
+}
+
+// Baut die Umfrage-Karte und setzt sie zeitlich richtig zwischen die vorhandenen Nachrichten
+function insertPollRow(poll) {
+  const chatBox = document.getElementById('chat-box')
+  if (chatBox.querySelector(`[data-poll-id="${poll.id}"]`)) return
+
+  const row = document.createElement('div')
+  row.className = 'poll-row'
+  row.dataset.pollId = poll.id
+  row.dataset.createdAt = poll.created_at
+  buildPollCard(row, poll)
+
+  const createdAt = new Date(poll.created_at)
+  const sibling = Array.from(chatBox.children).find(el => new Date(el.dataset.createdAt) > createdAt)
+  if (sibling) chatBox.insertBefore(row, sibling)
+  else chatBox.appendChild(row)
+
+  applyEmojiImages(row)
+}
+
+// Der Inhalt einer Umfrage-Karte: Frage, Optionen mit Balken, Fußzeile
+function buildPollCard(row, poll) {
+  row.innerHTML = ''
+  const authorName = (profileCache[poll.created_by] && profileCache[poll.created_by].name) || 'Jemand'
+  const totalVoters = new Set(Object.values(poll.votesByOption).flat()).size
+  const myVotes = new Set(
+    Object.entries(poll.votesByOption)
+      .filter(([, ids]) => ids.includes(currentUser.id))
+      .map(([idx]) => Number(idx))
+  )
+
+  const card = document.createElement('div')
+  card.className = 'poll-card'
+
+  const head = document.createElement('div')
+  head.className = 'poll-head'
+  head.innerHTML = '<span class="poll-icon">📊</span> Umfrage'
+  card.appendChild(head)
+
+  const question = document.createElement('p')
+  question.className = 'poll-question'
+  question.textContent = poll.question
+  card.appendChild(question)
+
+  poll.options.forEach((optionText, idx) => {
+    const count = (poll.votesByOption[idx] || []).length
+    const pct = totalVoters > 0 ? Math.round((count / totalVoters) * 100) : 0
+    const mine = myVotes.has(idx)
+
+    const opt = document.createElement('button')
+    opt.type = 'button'
+    opt.className = 'poll-option' + (mine ? ' mine' : '')
+    opt.disabled = !canUsePolls()
+
+    const fill = document.createElement('div')
+    fill.className = 'poll-option-fill'
+    fill.style.width = pct + '%'
+    opt.appendChild(fill)
+
+    const label = document.createElement('span')
+    label.className = 'poll-option-label'
+    label.textContent = optionText
+    opt.appendChild(label)
+
+    const stat = document.createElement('span')
+    stat.className = 'poll-option-stat'
+    stat.textContent = count > 0 ? pct + '% · ' + count : ''
+    stat.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (count > 0) openPollVotersModal(optionText, poll.votesByOption[idx] || [])
+    })
+    opt.appendChild(stat)
+
+    opt.addEventListener('click', () => votePoll(poll.id, idx))
+    card.appendChild(opt)
+  })
+
+  const foot = document.createElement('p')
+  foot.className = 'poll-foot'
+  const parts = []
+  if (poll.allow_multiple) parts.push('Mehrfachauswahl')
+  parts.push(totalVoters === 1 ? '1 Stimme' : totalVoters + ' Stimmen')
+  parts.push('von ' + authorName)
+  foot.textContent = parts.join(' · ')
+  card.appendChild(foot)
+
+  row.appendChild(card)
+}
+
+function refreshPollCard(pollId) {
+  const row = document.querySelector(`#chat-box [data-poll-id="${pollId}"]`)
+  const poll = pollsMap[pollId]
+  if (row && poll) { buildPollCard(row, poll); applyEmojiImages(row) }
+}
+
+async function votePoll(pollId, optionIndex) {
+  if (!canUsePolls()) return
+  const poll = pollsMap[pollId]
+  if (!poll) return
+
+  const me = currentUser.id
+  const myCurrent = Object.entries(poll.votesByOption)
+    .filter(([, ids]) => ids.includes(me))
+    .map(([idx]) => Number(idx))
+  const alreadyVoted = myCurrent.includes(optionIndex)
+
+  // Erst die Oberfläche anpassen, damit es sich sofort reagiert anfühlt
+  if (!poll.allow_multiple) {
+    myCurrent.forEach(idx => {
+      poll.votesByOption[idx] = (poll.votesByOption[idx] || []).filter(id => id !== me)
+    })
+  }
+  if (alreadyVoted && (poll.allow_multiple || myCurrent.length === 1)) {
+    poll.votesByOption[optionIndex] = (poll.votesByOption[optionIndex] || []).filter(id => id !== me)
+  } else {
+    if (!poll.votesByOption[optionIndex]) poll.votesByOption[optionIndex] = []
+    if (!poll.votesByOption[optionIndex].includes(me)) poll.votesByOption[optionIndex].push(me)
+  }
+  refreshPollCard(pollId)
+
+  // Dann in der Datenbank nachziehen: bei Einfachauswahl erst die alten Stimmen entfernen
+  if (!poll.allow_multiple) {
+    await supabaseClient.from('poll_votes').delete().eq('poll_id', pollId).eq('user_id', me)
+  }
+  if (!(alreadyVoted && (poll.allow_multiple || myCurrent.length === 1))) {
+    const { error } = await supabaseClient
+      .from('poll_votes')
+      .insert([{ poll_id: pollId, user_id: me, option_index: optionIndex }])
+    if (error) console.error('Stimme konnte nicht gespeichert werden:', error)
+  } else if (poll.allow_multiple) {
+    await supabaseClient.from('poll_votes').delete()
+      .eq('poll_id', pollId).eq('user_id', me).eq('option_index', optionIndex)
+  }
+}
+
+function openPollVotersModal(optionText, userIds) {
+  document.getElementById('poll-voters-title').textContent = 'Stimmen für „' + optionText + '"'
+  const list = document.getElementById('poll-voters-list')
+  list.innerHTML = ''
+
+  userIds
+    .map(id => ({ id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt' }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach(person => {
+      const item = document.createElement('li')
+      item.className = 'info-item'
+      const avatar = document.createElement('div')
+      avatar.className = 'info-avatar'
+      avatar.style.background = avatarColor(person.id)
+      avatar.textContent = initialsOf(person.name)
+      const name = document.createElement('span')
+      name.textContent = person.name
+      item.appendChild(avatar)
+      item.appendChild(name)
+      list.appendChild(item)
+    })
+
+  document.getElementById('poll-voters-modal').style.display = 'flex'
+}
+
+function closePollVotersModal() {
+  document.getElementById('poll-voters-modal').style.display = 'none'
+}
+
+// Neue Umfragen und Stimmen im offenen Chat live mithören
+function startPollListening() {
+  stopPollListening()
+  const key = pollChatKey(currentRoom)
+  if (!key) return
+
+  pollsChannel = supabaseClient
+    .channel('polls:' + key)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'polls', filter: 'chat_key=eq.' + key },
+      (payload) => {
+        const poll = { ...payload.new, votesByOption: {} }
+        pollsMap[poll.id] = poll
+        insertPollRow(poll)
+      })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'poll_votes' }, (payload) => {
+      const row = payload.new || payload.old
+      if (!row || !pollsMap[row.poll_id]) return
+      const poll = pollsMap[row.poll_id]
+      const idx = row.option_index
+
+      if (payload.eventType === 'DELETE') {
+        poll.votesByOption[idx] = (poll.votesByOption[idx] || []).filter(id => id !== row.user_id)
+      } else {
+        if (!poll.votesByOption[idx]) poll.votesByOption[idx] = []
+        if (!poll.votesByOption[idx].includes(row.user_id)) poll.votesByOption[idx].push(row.user_id)
+      }
+      refreshPollCard(row.poll_id)
+    })
+    .subscribe()
+}
+
+function stopPollListening() {
+  if (pollsChannel) {
+    supabaseClient.removeChannel(pollsChannel)
+    pollsChannel = null
+  }
+}
+
+// ----- Umfrage erstellen (Pop-up) -----
+let pollOptionCount = 0
+
+function openPollModal() {
+  document.getElementById('poll-question').value = ''
+  document.getElementById('poll-multiple').checked = false
+  document.getElementById('poll-error').style.display = 'none'
+  document.getElementById('poll-options').innerHTML = ''
+  pollOptionCount = 0
+  addPollOption()
+  addPollOption()
+  document.getElementById('poll-modal').style.display = 'flex'
+  applyEmojiImages(document.getElementById('poll-modal'))
+}
+
+function closePollModal() {
+  document.getElementById('poll-modal').style.display = 'none'
+}
+
+function addPollOption() {
+  const container = document.getElementById('poll-options')
+  if (container.children.length >= 10) return
+
+  pollOptionCount++
+  const group = document.createElement('div')
+  group.className = 'input-group poll-option-input'
+
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.placeholder = 'Option ' + pollOptionCount
+  input.maxLength = 100
+
+  group.appendChild(input)
+
+  if (container.children.length >= 2) {
+    const removeBtn = document.createElement('button')
+    removeBtn.type = 'button'
+    removeBtn.className = 'poll-option-remove'
+    removeBtn.textContent = '✕'
+    removeBtn.setAttribute('aria-label', 'Option entfernen')
+    removeBtn.addEventListener('click', () => group.remove())
+    group.appendChild(removeBtn)
+  }
+
+  container.appendChild(group)
+}
+
+async function submitPoll() {
+  const errorEl = document.getElementById('poll-error')
+  errorEl.style.display = 'none'
+
+  const question = document.getElementById('poll-question').value.trim()
+  const options = Array.from(document.querySelectorAll('#poll-options input'))
+    .map(i => i.value.trim())
+    .filter(Boolean)
+
+  if (!question) { errorEl.textContent = 'Bitte eine Frage eingeben.'; errorEl.style.display = 'block'; return }
+  if (options.length < 2) { errorEl.textContent = 'Mindestens 2 Optionen ausfüllen.'; errorEl.style.display = 'block'; return }
+
+  const key = pollChatKey(currentRoom)
+  const row = {
+    chat_key: key,
+    question: question,
+    options: options,
+    allow_multiple: document.getElementById('poll-multiple').checked,
+    created_by: currentUser.id
+  }
+
+  const { data: inserted, error } = await supabaseClient.from('polls').insert([row]).select().single()
+
+  if (error) {
+    console.error('Umfrage konnte nicht erstellt werden:', error)
+    errorEl.textContent = 'Konnte nicht erstellt werden. Bitte nochmal versuchen.'
+    errorEl.style.display = 'block'
     return
   }
 
-  reactionMap = await loadReactionsFor(messages.map(m => m.id))
-  messages.forEach(msg => renderMessage(msg))
-  chatBox.scrollTop = chatBox.scrollHeight
+  closePollModal()
+  pollsMap[inserted.id] = { ...inserted, votesByOption: {} }
+  insertPollRow(pollsMap[inserted.id])
+  document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight
+}
+
+// ----- "+"-Menü neben dem Eingabefeld (aktuell nur die Umfrage; Fotos folgen später) -----
+let openAttachMenuEl = null
+
+function closeAttachMenu() {
+  if (openAttachMenuEl) { openAttachMenuEl.remove(); openAttachMenuEl = null }
+}
+
+function toggleAttachMenu(anchorBtn) {
+  if (openAttachMenuEl) { closeAttachMenu(); return }
+  closeTextEmojiPicker()
+
+  const menu = document.createElement('div')
+  menu.className = 'msg-menu attach-menu'
+  menu.addEventListener('click', e => e.stopPropagation())
+
+  const pollItem = document.createElement('button')
+  pollItem.className = 'msg-menu-item'
+  pollItem.innerHTML = '📊&nbsp; Umfrage'
+  pollItem.addEventListener('click', () => { closeAttachMenu(); openPollModal() })
+  menu.appendChild(pollItem)
+
+  anchorBtn.parentElement.appendChild(menu)
+  applyEmojiImages(menu)
+  openAttachMenuEl = menu
+}
+
+document.addEventListener('click', closeAttachMenu)
+
+// ----- Emoji-Button links im Eingabefeld: fügt ein Emoji im Text ein -----
+let openTextEmojiEl = null
+
+function closeTextEmojiPicker() {
+  if (openTextEmojiEl) { openTextEmojiEl.remove(); openTextEmojiEl = null }
+}
+
+function toggleTextEmojiPicker(anchorBtn) {
+  if (openTextEmojiEl) { closeTextEmojiPicker(); return }
+  closeAttachMenu()
+
+  const picker = document.createElement('div')
+  picker.className = 'emoji-picker input-emoji-picker'
+  picker.addEventListener('click', e => e.stopPropagation())
+
+  QUICK_EMOJI.forEach(emoji => {
+    const btn = document.createElement('button')
+    btn.className = 'emoji-picker-btn'
+    btn.textContent = emoji
+    btn.addEventListener('click', () => insertEmojiInInput(emoji))
+    picker.appendChild(btn)
+  })
+
+  anchorBtn.parentElement.appendChild(picker)
+  applyEmojiImages(picker)
+  openTextEmojiEl = picker
+}
+
+document.addEventListener('click', closeTextEmojiPicker)
+
+function insertEmojiInInput(emoji) {
+  const input = document.getElementById('message-input')
+  const start = input.selectionStart ?? input.value.length
+  const end = input.selectionEnd ?? input.value.length
+  input.value = input.value.slice(0, start) + emoji + input.value.slice(end)
+  const pos = start + emoji.length
+  input.focus()
+  input.setSelectionRange(pos, pos)
 }
 
 // Reaktionen (Daumen hoch/runter) zu einer Liste von Nachrichten-IDs laden
@@ -897,6 +1301,12 @@ function formatTime(isoString) {
 
   const date = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
   return date + ', ' + time
+}
+
+// Emojis als kleine Bilder statt als (unter Windows hässliche) Systemzeichen zeichnen.
+// window.twemoji kommt von der Bibliothek, die in index.html eingebunden ist.
+function applyEmojiImages(el) {
+  if (window.twemoji) window.twemoji.parse(el, { folder: 'svg', ext: '.svg' })
 }
 
 // Eine Nachricht als Element in den Chat einfügen
@@ -1009,6 +1419,7 @@ function renderMessage(msg) {
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
   const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80
   chatBox.appendChild(row)
+  applyEmojiImages(row)
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
 }
 
@@ -1403,6 +1814,7 @@ function stopListening() {
     chatChannel = null
   }
   stopPeerListening()
+  stopPollListening()
 }
 
 // Solange man eingeloggt ist: bei jeder neuen Nachricht (egal wo) die Chatliste neu sortieren
