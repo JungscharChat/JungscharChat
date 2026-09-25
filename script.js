@@ -27,6 +27,7 @@ let deliveredTimer = null
 let pollsMap = {}           // poll_id -> Umfrage samt Stimmen, für den gerade offenen Chat
 let pollsChannel = null     // Realtime: neue Umfragen und Stimmen im offenen Chat
 let messagesById = {}       // id -> ganze Nachricht, für die Antwort-Zitate
+let lastMessageDateKey = null // Tag der zuletzt gezeichneten Nachricht, für die Datums-Trenner
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -869,6 +870,7 @@ async function loadMessages() {
   chatBox.innerHTML = ''
 
   messagesById = {}
+  lastMessageDateKey = null
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
   messages.forEach(msg => renderMessage(msg))
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
@@ -1380,16 +1382,20 @@ function renderMessage(msg) {
     meta.appendChild(authorEl)
   }
 
+  // Uhrzeit (und "bearbeitet") stehen unten an der Nachricht, nicht oben
+  const footer = document.createElement('div')
+  footer.className = 'msg-footer'
+
   const timeEl = document.createElement('span')
   timeEl.className = 'msg-time'
   timeEl.textContent = formatTime(msg.created_at)
-  meta.appendChild(timeEl)
+  footer.appendChild(timeEl)
 
   if (msg.edited_at) {
     const editedTag = document.createElement('span')
     editedTag.className = 'msg-edited'
     editedTag.textContent = '(bearbeitet)'
-    meta.appendChild(editedTag)
+    footer.appendChild(editedTag)
   }
 
   // Drei-Punkte-Menü: Inhalt hängt davon ab, wem die Nachricht gehört
@@ -1421,9 +1427,10 @@ function renderMessage(msg) {
   reactRow.className = 'msg-reactions'
   renderReactionChips(reactRow, msg.id)
 
-  msgElement.appendChild(meta)
+  if (meta.children.length > 0) msgElement.appendChild(meta)
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   msgElement.appendChild(textEl)
+  msgElement.appendChild(footer)
   msgElement.appendChild(reactRow)
 
   // Häkchen unter den eigenen Nachrichten (1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen)
@@ -1444,6 +1451,13 @@ function renderMessage(msg) {
 
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
   const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80
+
+  const key = dateKey(msg.created_at)
+  if (key !== lastMessageDateKey) {
+    insertDateSeparator(msg.created_at)
+    lastMessageDateKey = key
+  }
+
   chatBox.appendChild(row)
   applyEmojiImages(row)
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
@@ -1942,6 +1956,34 @@ async function toggleReaction(messageId, emoji) {
 
   const row = document.querySelector(`#chat-box [data-id="${messageId}"] .msg-reactions`)
   if (row) renderReactionChips(row, messageId)
+}
+
+// ===== Datums-Trenner zwischen Nachrichten verschiedener Tage =====
+function dateKey(iso) {
+  const d = new Date(iso)
+  return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()
+}
+
+function formatDateSeparator(iso) {
+  const d = new Date(iso)
+  const now = new Date()
+  if (dateKey(iso) === dateKey(now)) return 'Heute'
+
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (dateKey(iso) === dateKey(yesterday)) return 'Gestern'
+
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function insertDateSeparator(iso) {
+  const el = document.createElement('div')
+  el.className = 'date-separator'
+  const pill = document.createElement('span')
+  pill.className = 'date-separator-pill'
+  pill.textContent = formatDateSeparator(iso)
+  el.appendChild(pill)
+  document.getElementById('chat-box').appendChild(el)
 }
 
 // Baut das kleine Zitat der beantworteten Nachricht oben in einer Sprechblase

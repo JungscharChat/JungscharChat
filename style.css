@@ -471,6 +471,40 @@ input:focus-visible {
   opacity: 0.7;
 }
 
+/* Uhrzeit (+ "bearbeitet") jetzt unten an der Nachricht statt oben */
+.msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.msg.other .msg-footer {
+  color: var(--text-secondary);
+}
+
+.msg.own .msg-footer {
+  justify-content: flex-end;
+  color: rgba(234, 242, 250, 0.7);
+}
+
+/* ===== Datums-Trenner zwischen Nachrichten verschiedener Tage ===== */
+.date-separator {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+}
+
+.date-separator-pill {
+  padding: 4px 12px;
+  background: var(--bg-panel-raised);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 .msg-reactions {
   display: flex;
   gap: 6px;
