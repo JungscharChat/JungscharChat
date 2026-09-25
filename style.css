@@ -1186,7 +1186,9 @@ body.split-view.chat-open #chat-placeholder {
   justify-content: space-between;
   align-items: center;
   gap: 6px;
-  padding: 14px 16px;
+  /* Links/rechts bündig mit dem Chat-Kopf und der Chatliste (kein extra Einrücken);
+     oben/unten so bemessen, dass der Abstand zur Linie und zum ersten Chat gleich groß ist */
+  padding: 10px 0 14px;
 }
 
 .chat-tab {
