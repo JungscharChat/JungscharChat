@@ -442,6 +442,9 @@ function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
   `
 }
 
+// Welcher Reiter über der Chatliste gerade ausgewählt ist ("alle", "gruppen", "junge", "maedchen")
+let activeChatTab = 'alle'
+
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
@@ -463,6 +466,7 @@ async function renderChatList() {
     unreadFor('main')
   )
   groupItem.dataset.chatKey = 'main'
+  groupItem.dataset.tabs = 'alle gruppen'
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
@@ -476,6 +480,7 @@ async function renderChatList() {
       unreadFor('junge')
     )
     item.dataset.chatKey = 'junge'
+    item.dataset.tabs = 'alle gruppen junge'
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
   }
@@ -490,6 +495,7 @@ async function renderChatList() {
       unreadFor('maedchen')
     )
     item.dataset.chatKey = 'maedchen'
+    item.dataset.tabs = 'alle gruppen maedchen'
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
   }
@@ -514,6 +520,7 @@ async function renderChatList() {
       unreadFor('dm:' + id)
     )
     item.dataset.chatKey = 'dm:' + id
+    item.dataset.tabs = 'alle'
     item.addEventListener('click', () => {
       if (isAdmin()) openAdminContactsFor(id, name)
       else openDirectChat(id, name)
@@ -528,6 +535,9 @@ async function renderChatList() {
     list.appendChild(hint)
   }
 
+  renderChatTabs()
+  applyChatTabFilter()
+
   markActiveListItem()
 }
 
@@ -536,6 +546,42 @@ function unreadFor(key) {
   if (isSplitView() && isConversationVisible() && key === chatKeyForRoom(currentRoom)) return 0
   return unreadCounts[key]
 }
+
+// Nur die Reiter zeigen, für die es auch etwas zu sehen gibt (z. B. "Jungs" nur für Admin/Jungs selbst)
+function renderChatTabs() {
+  const available = new Set(['alle'])
+  document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
+    ;(li.dataset.tabs || '').split(' ').forEach(t => available.add(t))
+  })
+  // "Gruppen" macht nur Sinn, wenn es mehr als nur die eine Hauptgruppe gibt
+  if (!document.querySelector('[data-chat-key="junge"], [data-chat-key="maedchen"]')) available.delete('gruppen')
+
+  if (!available.has(activeChatTab)) activeChatTab = 'alle'
+
+  document.querySelectorAll('.chat-tab').forEach(btn => {
+    btn.style.display = available.has(btn.dataset.tab) ? '' : 'none'
+    btn.classList.toggle('active', btn.dataset.tab === activeChatTab)
+  })
+  document.getElementById('chat-tabs').style.display = available.size > 1 ? 'flex' : 'none'
+}
+
+// Chateinträge passend zum gewählten Reiter ein-/ausblenden
+function applyChatTabFilter() {
+  document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
+    const tabs = (li.dataset.tabs || 'alle').split(' ')
+    li.style.display = tabs.includes(activeChatTab) ? '' : 'none'
+  })
+  const hint = document.querySelector('#chat-list .chat-empty')
+  if (hint) hint.style.display = activeChatTab === 'alle' ? '' : 'none'
+}
+
+document.querySelectorAll('.chat-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeChatTab = btn.dataset.tab
+    renderChatTabs()
+    applyChatTabFilter()
+  })
+})
 
 // Am PC den Eintrag des offenen Chats in der Liste hervorheben
 function markActiveListItem() {

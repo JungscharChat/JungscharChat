@@ -6,44 +6,10 @@
   <title>JungscharChat</title>
   <meta name="theme-color" content="#0e1621">
   
-  <!-- App-Verhalten auf iPads / Mobilgeräten -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="JungscharChat">
-
-  <!-- Beschreibungen & Metadaten für Google -->
-  <meta name="description" content="Der offizielle JungscharChat für Gifhorn. Melde dich an und schreibe mit deinen Freunden.">
-  <meta name="keywords" content="JungscharChat, Jungschar, Gifhorn, Chat, Messenger">
-  <meta name="robots" content="index, follow">
-
-  <meta property="og:site_name" content="JungscharChat">
-  <meta property="og:title" content="JungscharChat – Gifhorn">
-  <meta property="og:description" content="Der offizielle JungscharChat für Gifhorn.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://myjungschar.github.io/chat/">
-
-  <!-- Icons & Web App Manifest -->
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
-
-  <!-- Strukturierte Daten -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "JungscharChat",
-    "alternateName": ["Jungschar Chat Gifhorn", "Jungschar Chat"],
-    "url": "https://myjungschar.github.io/chat/",
-    "publisher": {
-      "@type": "Organization",
-      "name": "ECBG Gifhorn",
-      "url": "https://ecbg.de"
-    }
-  }
-  </script>
-
-  <!-- CSS & Supabase -->
+  <!-- Das eigene CSS -->
   <link rel="stylesheet" href="style.css">
+
+  <!-- Supabase JS Library -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -111,6 +77,15 @@
           <button class="logout-btn" onclick="logout()">Abmelden</button>
         </div>
       </header>
+
+      <!-- Reiter: Alle Chats, Gruppen, Jungs, Mädels. Welche davon zu sehen sind, hängt davon ab,
+           ob man Admin ist oder zu welcher Gruppe man gehört - genau wie bei den Chats selbst. -->
+      <div id="chat-tabs" class="chat-tabs">
+        <button type="button" class="chat-tab active" data-tab="alle">Alle Chats</button>
+        <button type="button" class="chat-tab" data-tab="gruppen">Gruppen</button>
+        <button type="button" class="chat-tab" data-tab="junge">Jungs</button>
+        <button type="button" class="chat-tab" data-tab="maedchen">Mädels</button>
+      </div>
 
       <!-- Gruppe + Einzelchats -->
       <ul id="chat-list"></ul>
@@ -257,12 +232,9 @@
 
     </div>
 
-    <!-- Platzhalter rechts in der großen PC-Ansicht, solange kein Chat offen ist -->
+    <!-- Platzhalter rechts in der großen PC-Ansicht, solange kein Chat offen ist (wie bei Telegram) -->
     <div id="chat-placeholder">
-      <div>
-        <div class="placeholder-icon">💬</div>
-        <p>Wähle links einen Chat aus</p>
-      </div>
+      <span class="placeholder-pill">Chat auswählen, um zu schreiben</span>
     </div>
 
   </div>

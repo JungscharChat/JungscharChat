@@ -1116,3 +1116,41 @@ body.split-view.chat-open #chat-placeholder {
   margin-bottom: 10px;
   opacity: 0.6;
 }
+
+/* ===== Reiter über der Chatliste (Alle Chats / Gruppen / Jungs / Mädels) ===== */
+.chat-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px 4px;
+  overflow-x: auto;
+}
+
+.chat-tab {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-tab:hover {
+  color: var(--text-primary);
+}
+
+.chat-tab.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* ===== Platzhalter rechts in der PC-Ansicht (Telegram-Stil: Pille in der Mitte) ===== */
+.placeholder-pill {
+  padding: 10px 20px;
+  background: var(--bg-panel-raised);
+  border-radius: 999px;
+  font-size: 14px;
+}
