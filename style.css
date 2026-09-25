@@ -589,6 +589,81 @@ img.emoji {
   margin: 0;
 }
 
+/* ===== Antwort-Leiste über dem Eingabefeld ===== */
+#reply-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-panel-raised);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.reply-bar-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reply-bar-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reply-bar-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+/* ===== Zitat einer beantworteten Nachricht, oben in der eigenen Sprechblase ===== */
+.msg-reply-quote {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.15);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.35;
+  color: inherit;
+  cursor: pointer;
+}
+
+.msg-reply-quote:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.msg-reply-quote.missing {
+  cursor: default;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.msg-reply-author {
+  display: block;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.msg-reply-snippet {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-row.highlight .msg {
+  outline: 2px solid var(--accent);
+}
+
 /* ===== Bearbeiten-Leiste über dem Eingabefeld ===== */
 #edit-bar {
   display: flex;

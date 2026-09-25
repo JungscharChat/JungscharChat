@@ -26,6 +26,7 @@ let deliveredPending = {}   // chat_key -> { ms, iso }, wartet auf das gebündel
 let deliveredTimer = null
 let pollsMap = {}           // poll_id -> Umfrage samt Stimmen, für den gerade offenen Chat
 let pollsChannel = null     // Realtime: neue Umfragen und Stimmen im offenen Chat
+let messagesById = {}       // id -> ganze Nachricht, für die Antwort-Zitate
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -484,7 +485,7 @@ async function renderChatList() {
       unreadFor('junge')
     )
     item.dataset.chatKey = 'junge'
-    item.dataset.tabs = 'alle gruppen junge'
+    item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "junge" schon eigenständig
     item.dataset.name = 'Jungs'
     item.addEventListener('click', () => openGenderGroup('junge', 'Jungs'))
     list.appendChild(item)
@@ -500,7 +501,7 @@ async function renderChatList() {
       unreadFor('maedchen')
     )
     item.dataset.chatKey = 'maedchen'
-    item.dataset.tabs = 'alle gruppen maedchen'
+    item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "maedchen" schon eigenständig
     item.dataset.name = 'Mädels'
     item.addEventListener('click', () => openGenderGroup('maedchen', 'Mädels'))
     list.appendChild(item)
@@ -705,6 +706,7 @@ async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title
   showScreen('conversation-bereich')
   cancelEditingMessage()
+  cancelReplyingTo()
 
   // Admins lesen überall mit, schreiben aber nirgends
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
@@ -866,6 +868,7 @@ async function loadMessages() {
   const chatBox = document.getElementById('chat-box')
   chatBox.innerHTML = ''
 
+  messagesById = {}
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
   messages.forEach(msg => renderMessage(msg))
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
@@ -1341,6 +1344,8 @@ function renderMessage(msg) {
 
   noteSeenMessage(msg)
 
+  messagesById[msg.id] = msg
+
   const isOwn = msg.sender_id === perspectiveUserId()
   const author =
     (msg.profiles && msg.profiles.display_name) ||
@@ -1391,10 +1396,11 @@ function renderMessage(msg) {
   const canEdit = isOwn && !isAdmin()
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
+  const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
-  if (canEdit || canDelete || canReact) {
+  if (canEdit || canDelete || canReact || canReply) {
     const menuBtn = document.createElement('button')
     menuBtn.className = 'msg-menu-btn'
     menuBtn.title = 'Optionen'
@@ -1402,7 +1408,7 @@ function renderMessage(msg) {
     menuBtn.textContent = '⋮'
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact, canInfo })
+      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact, canInfo, canReply })
     })
     msgElement.appendChild(menuBtn)
   }
@@ -1416,6 +1422,7 @@ function renderMessage(msg) {
   renderReactionChips(reactRow, msg.id)
 
   msgElement.appendChild(meta)
+  if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   msgElement.appendChild(textEl)
   msgElement.appendChild(reactRow)
 
@@ -1680,6 +1687,17 @@ function openMessageMenu(anchorBtn, msg, options) {
   function showMainOptions() {
     menu.innerHTML = ''
 
+    if (options.canReply) {
+      const replyItem = document.createElement('button')
+      replyItem.className = 'msg-menu-item'
+      replyItem.textContent = 'Antworten'
+      replyItem.addEventListener('click', () => {
+        closeMessageMenu()
+        startReplyingTo(msg.id)
+      })
+      menu.appendChild(replyItem)
+    }
+
     if (options.canReact) {
       const reactItem = document.createElement('button')
       reactItem.className = 'msg-menu-item'
@@ -1762,6 +1780,7 @@ async function sendMessage() {
   const row = { sender_id: currentUser.id, text: text }
   if (currentRoom.type === 'dm') row.recipient_id = currentRoom.userId
   else row.group_key = currentRoom.groupKey || null
+  if (replyingToId) row.reply_to_id = replyingToId
 
   // .select() liefert die neue Zeile zurück, damit sie sofort angezeigt werden kann
   const { data: inserted, error } = await supabaseClient
@@ -1775,6 +1794,7 @@ async function sendMessage() {
   if (error) {
     await handleSendError(error)
   } else {
+    cancelReplyingTo()
     renderMessage(inserted)
     input.value = ''
     input.focus()
@@ -1924,11 +1944,82 @@ async function toggleReaction(messageId, emoji) {
   if (row) renderReactionChips(row, messageId)
 }
 
+// Baut das kleine Zitat der beantworteten Nachricht oben in einer Sprechblase
+function buildReplyQuote(replyToId) {
+  const original = messagesById[replyToId]
+  const quote = document.createElement('button')
+  quote.type = 'button'
+  quote.className = 'msg-reply-quote'
+
+  if (!original) {
+    quote.classList.add('missing')
+    quote.disabled = true
+    quote.textContent = 'Ursprüngliche Nachricht nicht mehr verfügbar'
+    return quote
+  }
+
+  const authorName =
+    (original.profiles && original.profiles.display_name) ||
+    (profileCache[original.sender_id] && profileCache[original.sender_id].name) ||
+    'Unbekannt'
+
+  const authorEl = document.createElement('span')
+  authorEl.className = 'msg-reply-author'
+  authorEl.textContent = authorName
+  const snippetEl = document.createElement('span')
+  snippetEl.className = 'msg-reply-snippet'
+  snippetEl.textContent = original.text
+
+  quote.appendChild(authorEl)
+  quote.appendChild(snippetEl)
+  quote.addEventListener('click', (e) => {
+    e.stopPropagation()
+    jumpToMessage(replyToId)
+  })
+  return quote
+}
+
+// Springt zur ursprünglichen Nachricht und hebt sie kurz hervor
+function jumpToMessage(id) {
+  const target = document.querySelector(`#chat-box [data-id="${id}"]`)
+  if (!target) return
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  target.classList.add('highlight')
+  setTimeout(() => target.classList.remove('highlight'), 1500)
+}
+
+// ----- Auf eine bestimmte Nachricht antworten -----
+let replyingToId = null
+
+function startReplyingTo(id) {
+  const original = messagesById[id]
+  if (!original) return
+
+  cancelEditingMessage() // Antworten und gleichzeitig eine eigene Nachricht bearbeiten schließen sich aus
+  replyingToId = id
+
+  const authorName =
+    (original.profiles && original.profiles.display_name) ||
+    (profileCache[original.sender_id] && profileCache[original.sender_id].name) ||
+    'Unbekannt'
+
+  document.getElementById('reply-bar-author').textContent = authorName
+  document.getElementById('reply-bar-snippet').textContent = original.text
+  document.getElementById('reply-bar').style.display = 'flex'
+  document.getElementById('message-input').focus()
+}
+
+function cancelReplyingTo() {
+  replyingToId = null
+  document.getElementById('reply-bar').style.display = 'none'
+}
+
 // Eigene Nachricht bearbeiten: der Text wandert unten ins Eingabefeld,
 // der Senden-Pfeil wird währenddessen zu einem Häkchen (wie bei WhatsApp)
 let editingMessageId = null
 
 function startEditingMessage(id, oldText) {
+  cancelReplyingTo() // Bearbeiten und gleichzeitig auf etwas antworten schließen sich aus
   editingMessageId = id
   const input = document.getElementById('message-input')
   input.value = oldText

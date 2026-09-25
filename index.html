@@ -261,6 +261,15 @@
         <!-- Hier werden die Nachrichten aus Supabase geladen -->
       </div>
 
+      <!-- Zeigt an, wenn man gerade auf eine bestimmte Nachricht antwortet -->
+      <div id="reply-bar" style="display: none;">
+        <div class="reply-bar-info">
+          <span class="reply-bar-label">Antwort an <span id="reply-bar-author"></span></span>
+          <span id="reply-bar-snippet" class="reply-bar-snippet"></span>
+        </div>
+        <button type="button" class="edit-bar-cancel" onclick="cancelReplyingTo()" aria-label="Antworten abbrechen">✕</button>
+      </div>
+
       <!-- Zeigt an, wenn gerade eine Nachricht bearbeitet wird -->
       <div id="edit-bar" style="display: none;">
         <span>Nachricht bearbeiten</span>
