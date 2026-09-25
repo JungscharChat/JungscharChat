@@ -550,32 +550,40 @@ function unreadFor(key) {
   return unreadCounts[key]
 }
 
-// Nur die Reiter zeigen, für die es auch etwas zu sehen gibt (z. B. "Jungs" nur für Admin/Jungs selbst)
+// Alle 4 Reiter sind immer für jeden da, egal ob Junge, Mädchen oder Admin - sie sind ja nur ein Filter
+// auf das, was ohnehin in der Liste steht, keine eigene Berechtigung.
 function renderChatTabs() {
-  const available = new Set(['alle'])
-  document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
-    ;(li.dataset.tabs || '').split(' ').forEach(t => available.add(t))
-  })
-  // "Gruppen" macht nur Sinn, wenn es mehr als nur die eine Hauptgruppe gibt
-  if (!document.querySelector('[data-chat-key="junge"], [data-chat-key="maedchen"]')) available.delete('gruppen')
-
-  if (!available.has(activeChatTab)) activeChatTab = 'alle'
-
   document.querySelectorAll('.chat-tab').forEach(btn => {
-    btn.style.display = available.has(btn.dataset.tab) ? '' : 'none'
     btn.classList.toggle('active', btn.dataset.tab === activeChatTab)
   })
-  document.getElementById('chat-tabs').style.display = available.size > 1 ? 'flex' : 'none'
 }
 
 // Chateinträge passend zum gewählten Reiter ein-/ausblenden
 function applyChatTabFilter() {
+  let visibleCount = 0
   document.querySelectorAll('#chat-list .chat-list-item').forEach(li => {
     const tabs = (li.dataset.tabs || 'alle').split(' ')
-    li.style.display = tabs.includes(activeChatTab) ? '' : 'none'
+    const show = tabs.includes(activeChatTab)
+    li.style.display = show ? '' : 'none'
+    if (show) visibleCount++
   })
+
   const hint = document.querySelector('#chat-list .chat-empty')
   if (hint) hint.style.display = activeChatTab === 'alle' ? '' : 'none'
+
+  // Reiter ohne eigene Chats (z. B. "Mädels" bei einem Jungen) zeigen einen Hinweis statt einer leeren Liste
+  let emptyTabHint = document.getElementById('chat-tab-empty-hint')
+  if (visibleCount === 0 && !(hint && activeChatTab === 'alle')) {
+    if (!emptyTabHint) {
+      emptyTabHint = document.createElement('p')
+      emptyTabHint.id = 'chat-tab-empty-hint'
+      emptyTabHint.className = 'chat-empty'
+      document.getElementById('chat-list').appendChild(emptyTabHint)
+    }
+    emptyTabHint.textContent = 'Hier gibt es für dich nichts zu sehen.'
+  } else if (emptyTabHint) {
+    emptyTabHint.remove()
+  }
 }
 
 document.querySelectorAll('.chat-tab').forEach(btn => {
@@ -1199,7 +1207,8 @@ function closeAttachMenu() {
   if (openAttachMenuEl) { openAttachMenuEl.remove(); openAttachMenuEl = null }
 }
 
-function toggleAttachMenu(anchorBtn) {
+function toggleAttachMenu(anchorBtn, evt) {
+  if (evt) evt.stopPropagation() // sonst schließt der Klick das Menü über den globalen Listener sofort wieder
   if (openAttachMenuEl) { closeAttachMenu(); return }
   closeTextEmojiPicker()
 
@@ -1227,7 +1236,8 @@ function closeTextEmojiPicker() {
   if (openTextEmojiEl) { openTextEmojiEl.remove(); openTextEmojiEl = null }
 }
 
-function toggleTextEmojiPicker(anchorBtn) {
+function toggleTextEmojiPicker(anchorBtn, evt) {
+  if (evt) evt.stopPropagation() // sonst schließt der Klick den Picker über den globalen Listener sofort wieder
   if (openTextEmojiEl) { closeTextEmojiPicker(); return }
   closeAttachMenu()
 
@@ -1906,7 +1916,7 @@ async function toggleReaction(messageId, emoji) {
 }
 
 // Eigene Nachricht bearbeiten: der Text wandert unten ins Eingabefeld,
-// "Senden" wird währenddessen zu "Speichern" (wie bei WhatsApp)
+// der Senden-Pfeil wird währenddessen zu einem Häkchen (wie bei WhatsApp)
 let editingMessageId = null
 
 function startEditingMessage(id, oldText) {
@@ -1915,14 +1925,14 @@ function startEditingMessage(id, oldText) {
   input.value = oldText
   input.focus()
   document.getElementById('edit-bar').style.display = 'flex'
-  document.getElementById('send-btn').textContent = 'Speichern'
+  document.getElementById('send-btn').textContent = '✓'
 }
 
 function cancelEditingMessage() {
   editingMessageId = null
   document.getElementById('message-input').value = ''
   document.getElementById('edit-bar').style.display = 'none'
-  document.getElementById('send-btn').textContent = 'Senden'
+  document.getElementById('send-btn').textContent = '➤'
 }
 
 async function saveEditedMessage(newText) {
