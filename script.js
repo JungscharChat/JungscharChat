@@ -145,7 +145,8 @@ function showScreen(id) {
     hideAllScreens()
   }
 
-  document.getElementById(id).style.display = split ? 'flex' : 'block'
+  // Immer flex-Spalte (auch am Handy) - das lässt Liste bzw. Nachrichtenverlauf über die volle Höhe scrollen
+  document.getElementById(id).style.display = 'flex'
   document.body.classList.toggle('chat-open', isConversationVisible())
 }
 
@@ -1403,33 +1404,25 @@ function renderMessage(msg) {
     footer.appendChild(editedTag)
   }
 
-  // Drei-Punkte-Menü: Inhalt hängt davon ab, wem die Nachricht gehört
+  // Menü öffnen: nicht mehr über einen eigenen Button, sondern per Rechtsklick (PC) oder
+  // langem Tippen (Handy) direkt auf der Nachricht - Kopieren geht bei jeder Nachricht,
+  // der Rest hängt davon ab, wem sie gehört
   const canEdit = isOwn && !isAdmin()
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const canCopy = true
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
-  if (canEdit || canDelete || canReact || canReply) {
-    const menuBtn = document.createElement('button')
-    menuBtn.className = 'msg-menu-btn'
-    menuBtn.title = 'Optionen'
-    menuBtn.setAttribute('aria-label', 'Optionen')
-    menuBtn.textContent = '⋮'
-    menuBtn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      openMessageMenu(menuBtn, msg, { canEdit, canDelete, canReact, canInfo, canReply })
-    })
-    msgElement.appendChild(menuBtn)
-  }
+  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy })
 
   const textEl = document.createElement('div')
   textEl.className = 'msg-text'
   // Der Text selbst steht als reiner Textknoten davor, die Fußzeile (Uhrzeit + Haken)
   // wird gleich als eigenes, rechts schwebendes Element direkt danach eingehängt (siehe unten) -
   // dadurch rutscht sie bei kurzen Nachrichten ans Textende, bei langen presst sie sich unten rechts an
-  textEl.appendChild(document.createTextNode(msg.text))
+  appendTextWithLinks(textEl, msg.text)
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
@@ -1721,7 +1714,39 @@ function closeMessageMenu() {
 document.addEventListener('click', closeMessageMenu)
 
 // Öffnet das Drei-Punkte-Menü neben einer Nachricht
-function openMessageMenu(anchorBtn, msg, options) {
+// Öffnet das Nachrichtenmenü nicht mehr über einen eigenen Button, sondern per Rechtsklick
+// (PC) oder langem Tippen (Handy) direkt auf der Nachricht. Auf den Haken, dem Zitat und den
+// Reaktions-Chips wird das ignoriert, die haben ihre eigene Funktion bei einem normalen Klick.
+function attachMessageMenuTriggers(msgElement, msg, options) {
+  const hasMenu = options.canEdit || options.canDelete || options.canReact || options.canReply || options.canCopy
+  if (!hasMenu) return
+
+  function isExcluded(target) {
+    return target.closest('.msg-ticks, .msg-reply-quote, .reaction-btn')
+  }
+
+  msgElement.addEventListener('contextmenu', (e) => {
+    if (isExcluded(e.target)) return
+    e.preventDefault()
+    openMessageMenu(msgElement, msg, options)
+  })
+
+  let pressTimer = null
+
+  msgElement.addEventListener('touchstart', (e) => {
+    if (isExcluded(e.target)) return
+    pressTimer = setTimeout(() => {
+      pressTimer = null
+      openMessageMenu(msgElement, msg, options)
+    }, 450)
+  }, { passive: true })
+
+  ;['touchmove', 'touchend', 'touchcancel'].forEach(evt => {
+    msgElement.addEventListener(evt, () => { clearTimeout(pressTimer) })
+  })
+}
+
+function openMessageMenu(anchorEl, msg, options) {
   closeMessageMenu()
 
   const menu = document.createElement('div')
@@ -1740,6 +1765,21 @@ function openMessageMenu(anchorBtn, msg, options) {
         startReplyingTo(msg.id)
       })
       menu.appendChild(replyItem)
+    }
+
+    if (options.canCopy) {
+      const copyItem = document.createElement('button')
+      copyItem.className = 'msg-menu-item'
+      copyItem.textContent = 'Kopieren'
+      copyItem.addEventListener('click', async () => {
+        closeMessageMenu()
+        try {
+          await navigator.clipboard.writeText(msg.text)
+        } catch (err) {
+          console.error('Kopieren fehlgeschlagen:', err)
+        }
+      })
+      menu.appendChild(copyItem)
     }
 
     if (options.canReact) {
@@ -1802,7 +1842,7 @@ function openMessageMenu(anchorBtn, msg, options) {
   }
 
   showMainOptions()
-  anchorBtn.parentElement.appendChild(menu)
+  anchorEl.appendChild(menu)
   openMenuEl = menu
 }
 
@@ -2014,6 +2054,43 @@ function insertDateSeparator(iso) {
   pill.textContent = formatDateSeparator(iso)
   el.appendChild(pill)
   document.getElementById('chat-box').appendChild(el)
+}
+
+// Erkennt Links (http/https, www. oder eine .de-Adresse) in einem Nachrichtentext und baut daraus
+// echte, in einem neuen Tab öffnende <a>-Elemente, der Rest bleibt normaler Text
+function appendTextWithLinks(container, text) {
+  const LINK_REGEX = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|(\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.de(?:\/[^\s]*)?)/gi
+  let lastIndex = 0
+  let match
+
+  while ((match = LINK_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)))
+    }
+
+    let raw = match[0]
+    // Satzzeichen am Ende (Punkt, Komma, Klammer zu, ...) gehören meist nicht mehr zum Link
+    const trailMatch = raw.match(/[).,!?;:]+$/)
+    let trailing = ''
+    if (trailMatch) {
+      trailing = trailMatch[0]
+      raw = raw.slice(0, -trailing.length)
+    }
+
+    const link = document.createElement('a')
+    link.href = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw
+    link.textContent = raw
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.className = 'msg-link'
+    link.addEventListener('click', (e) => e.stopPropagation())
+    container.appendChild(link)
+
+    if (trailing) container.appendChild(document.createTextNode(trailing))
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) container.appendChild(document.createTextNode(text.slice(lastIndex)))
 }
 
 // Baut das kleine Zitat der beantworteten Nachricht oben in einer Sprechblase

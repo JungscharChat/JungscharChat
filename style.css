@@ -86,6 +86,7 @@ body.light-theme {
   border-radius: var(--radius-card);
   padding: 22px;
   box-shadow: var(--shadow-card);
+  flex-direction: column;
 }
 
 /* ===== Login ===== */
@@ -471,6 +472,15 @@ input:focus-visible {
   opacity: 0.7;
 }
 
+.msg-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.msg.own .msg-link {
+  color: #fff;
+}
+
 .msg-text {
   /* Klassischer Clearfix: ohne das würde die Fußzeile (siehe unten), die rechts im Text schwebt,
      nicht zur Höhe dieses Blocks beitragen */
@@ -484,7 +494,7 @@ input:focus-visible {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 4px 0 0 10px;
+  margin: 7px 0 0 4px;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -544,30 +554,10 @@ input:focus-visible {
   background: var(--accent-soft);
 }
 
-.msg-menu-btn {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: auto;
-  padding: 0 2px;
-  background: transparent;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.4;
-  color: inherit;
-  opacity: 0.55;
-}
-
-.msg-menu-btn:hover,
-.msg-menu-btn:focus-visible {
-  background: transparent;
-  opacity: 1;
-}
-
 .msg-menu {
   position: absolute;
-  top: 20px;
-  right: -2px;
+  top: 6px;
+  right: 6px;
   z-index: 20;
   min-width: 140px;
   background: var(--bg-panel-raised);
@@ -580,7 +570,7 @@ input:focus-visible {
 /* Bei fremden (linken) Nachrichten öffnet das Menü nach rechts statt nach links,
    sonst ragt es bei kurzen Nachrichten am linken Bildschirmrand hinaus und wird abgeschnitten */
 .msg.other .msg-menu {
-  left: -2px;
+  left: 6px;
   right: auto;
 }
 
@@ -1208,6 +1198,54 @@ img.emoji {
 .chat-list-item.active,
 .chat-list-item.active:hover {
   background: var(--accent-soft);
+}
+
+/* ===== Handy/schmales Fenster: die ganze Fläche nutzen statt einer schwebenden Karte in der Mitte -
+   jeder Bildschirm (Liste, Chat, Einstellungen, ...) ist dann eine eigene volle Seite ===== */
+@media (max-width: 899.98px) {
+  body {
+    display: block;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .app-container {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+  }
+
+  .card {
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    overflow-y: auto;
+  }
+
+  .chat-header,
+  #edit-bar,
+  #reply-bar,
+  .chat-input-area {
+    flex-shrink: 0;
+  }
+
+  #chat-list,
+  #admin-contacts-list,
+  #user-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  #chat-box {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
 }
 
 body.split-view {
