@@ -475,8 +475,8 @@ input:focus-visible {
 .msg-footer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: 4px;
+  margin-top: 2px;
   font-size: 11px;
 }
 
@@ -567,6 +567,13 @@ input:focus-visible {
   border-radius: 10px;
   box-shadow: var(--shadow-card);
   overflow: hidden;
+}
+
+/* Bei fremden (linken) Nachrichten öffnet das Menü nach rechts statt nach links,
+   sonst ragt es bei kurzen Nachrichten am linken Bildschirmrand hinaus und wird abgeschnitten */
+.msg.other .msg-menu {
+  left: 4px;
+  right: auto;
 }
 
 .msg-menu-item {
@@ -1105,6 +1112,8 @@ img.emoji {
 
 .msg-ticks svg {
   display: block;
+  width: 14px;
+  height: 9px;
 }
 
 /* ===== Pop-up "Nachrichten-Info" ===== */
