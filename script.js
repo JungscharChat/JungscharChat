@@ -16,7 +16,7 @@ let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemar
 let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für die Chatliste
 // Häkchen/Nachrichten-Info (braucht die Tabelle delivery_marks in Supabase). Erst auf true stellen,
 // wenn das SQL dafür ausgeführt wurde - bis dahin ist alles davon ausgeschaltet.
-const READ_RECEIPTS_ENABLED = false
+const READ_RECEIPTS_ENABLED = true
 
 let peerMarks = {}          // user_id -> { readAt, deliveredAt } der anderen Teilnehmer im offenen Chat, für die Häkchen
 let peerChannel = null      // Realtime: Lese-/Zustellmarkierungen der anderen im offenen Chat
