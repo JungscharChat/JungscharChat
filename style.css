@@ -471,13 +471,22 @@ input:focus-visible {
   opacity: 0.7;
 }
 
-/* Uhrzeit (+ "bearbeitet") jetzt unten an der Nachricht statt oben */
+.msg-text {
+  /* Klassischer Clearfix: ohne das würde die Fußzeile (siehe unten), die rechts im Text schwebt,
+     nicht zur Höhe dieses Blocks beitragen */
+  overflow: hidden;
+}
+
+/* Uhrzeit (+ "bearbeitet"/Haken) schwebt rechts im Textfluss, wie bei WhatsApp: bei kurzen
+   Nachrichten rutscht sie hinter den Text, bei langen presst sie sich unten rechts an */
 .msg-footer {
+  float: right;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 2px;
+  margin: 4px 0 0 10px;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .msg.other .msg-footer {
@@ -485,7 +494,6 @@ input:focus-visible {
 }
 
 .msg.own .msg-footer {
-  justify-content: flex-end;
   color: rgba(234, 242, 250, 0.7);
 }
 
@@ -538,8 +546,8 @@ input:focus-visible {
 
 .msg-menu-btn {
   position: absolute;
-  top: -4px;
-  right: -4px;
+  top: -2px;
+  right: -2px;
   width: auto;
   padding: 0 2px;
   background: transparent;
@@ -558,8 +566,8 @@ input:focus-visible {
 
 .msg-menu {
   position: absolute;
-  top: 18px;
-  right: -4px;
+  top: 20px;
+  right: -2px;
   z-index: 20;
   min-width: 140px;
   background: var(--bg-panel-raised);
@@ -572,7 +580,7 @@ input:focus-visible {
 /* Bei fremden (linken) Nachrichten öffnet das Menü nach rechts statt nach links,
    sonst ragt es bei kurzen Nachrichten am linken Bildschirmrand hinaus und wird abgeschnitten */
 .msg.other .msg-menu {
-  left: -4px;
+  left: -2px;
   right: auto;
 }
 

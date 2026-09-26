@@ -1426,7 +1426,10 @@ function renderMessage(msg) {
 
   const textEl = document.createElement('div')
   textEl.className = 'msg-text'
-  textEl.textContent = msg.text
+  // Der Text selbst steht als reiner Textknoten davor, die Fußzeile (Uhrzeit + Haken)
+  // wird gleich als eigenes, rechts schwebendes Element direkt danach eingehängt (siehe unten) -
+  // dadurch rutscht sie bei kurzen Nachrichten ans Textende, bei langen presst sie sich unten rechts an
+  textEl.appendChild(document.createTextNode(msg.text))
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
@@ -1449,7 +1452,9 @@ function renderMessage(msg) {
     row.classList.add('has-ticks')
   }
 
-  msgElement.appendChild(footer)
+  // Als letztes Kind IN den Text eingehängt (nicht danach als eigener Block) - das "float" in der
+  // CSS lässt den Text drum herum laufen, wie bei WhatsApp
+  textEl.appendChild(footer)
   msgElement.appendChild(reactRow)
 
   row.appendChild(msgElement)
