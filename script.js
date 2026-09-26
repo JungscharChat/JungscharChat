@@ -78,6 +78,7 @@ function applyStoredTheme() {
   document.body.classList.toggle('light-theme', isLight)
   const toggle = document.getElementById('dark-mode-toggle')
   if (toggle) toggle.checked = !isLight
+  updateThemePillIcon()
 }
 
 function toggleDarkMode() {
@@ -85,6 +86,34 @@ function toggleDarkMode() {
   const wantsDark = toggle.checked
   document.body.classList.toggle('light-theme', !wantsDark)
   localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
+  updateThemePillIcon()
+}
+
+// Die kleine Pille oben rechts auf dem Login-Bildschirm - schaltet dieselbe Einstellung wie in
+// den Einstellungen, nur ohne dass man sich dafür erst einloggen und dorthin navigieren muss
+function toggleThemePill() {
+  const wantsDark = document.body.classList.contains('light-theme')
+  document.body.classList.toggle('light-theme', !wantsDark)
+  localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
+  const toggle = document.getElementById('dark-mode-toggle')
+  if (toggle) toggle.checked = wantsDark
+  updateThemePillIcon()
+}
+
+// Zeigt an, wohin ein Tipp auf die Pille umschalten würde (Mond = wechselt zu dunkel, Sonne = zu hell)
+function updateThemePillIcon() {
+  const btn = document.getElementById('theme-pill-btn')
+  if (!btn) return
+  const isLight = document.body.classList.contains('light-theme')
+  btn.textContent = isLight ? '🌙' : '☀️'
+}
+
+function openAboutModal() {
+  document.getElementById('about-modal').style.display = 'flex'
+}
+
+function closeAboutModal() {
+  document.getElementById('about-modal').style.display = 'none'
 }
 
 applyStoredTheme()
@@ -135,6 +164,9 @@ function isListVisible() {
 function showScreen(id) {
   const split = desktopQuery.matches && !AUTH_SCREENS.includes(id)
   document.body.classList.toggle('split-view', split)
+  // Login/Passwort-Bildschirme bleiben immer eine kleine Karte in der Mitte, auch am Handy,
+  // und nur dort zeigt sich die kleine Leiste oben rechts (Hell/Dunkel, "Wer sind wir")
+  document.body.classList.toggle('auth-screen', AUTH_SCREENS.includes(id))
 
   if (split) {
     // Nur die eigene Seite austauschen, die andere bleibt stehen

@@ -74,6 +74,52 @@ body.light-theme {
   background: radial-gradient(circle at top, #ffffff 0%, var(--bg-app) 55%);
 }
 
+/* ===== Kleine Leiste oben rechts, nur auf den Login-Bildschirmen ===== */
+#auth-topbar {
+  display: none;
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 30;
+  gap: 8px;
+}
+
+body.auth-screen #auth-topbar {
+  display: flex;
+}
+
+.pill-btn {
+  width: auto;
+  padding: 7px 14px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.pill-btn:hover {
+  background: var(--bg-input);
+}
+
+#theme-pill-btn {
+  padding: 7px 10px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.about-text {
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.about-text a {
+  color: var(--accent);
+}
+
 .app-container {
   width: 100%;
   max-width: 460px;
@@ -1245,6 +1291,33 @@ img.emoji {
     flex: 1;
     height: auto;
     min-height: 0;
+  }
+
+  /* Ausnahme: Login/Passwort-Bildschirme bleiben eine kleine Karte in der Mitte, wie am PC */
+  body.auth-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  body.auth-screen .app-container {
+    max-width: 460px;
+    width: 100%;
+    height: auto;
+    padding: 15px;
+  }
+
+  body.auth-screen .card {
+    height: auto;
+    min-height: 0;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-card);
+    overflow-y: visible;
   }
 }
 
