@@ -1327,6 +1327,11 @@ function formatTime(isoString) {
   return date + ', ' + time
 }
 
+// Nur die Uhrzeit, ohne Datum - das Datum steht ja schon im Trenner über der Nachricht
+function formatTimeOnly(isoString) {
+  return new Date(isoString).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+}
+
 // Emojis als kleine Bilder statt als (unter Windows hässliche) Systemzeichen zeichnen.
 // window.twemoji kommt von der Bibliothek, die in index.html eingebunden ist.
 function applyEmojiImages(el) {
@@ -1388,7 +1393,7 @@ function renderMessage(msg) {
 
   const timeEl = document.createElement('span')
   timeEl.className = 'msg-time'
-  timeEl.textContent = formatTime(msg.created_at)
+  timeEl.textContent = formatTimeOnly(msg.created_at)
   footer.appendChild(timeEl)
 
   if (msg.edited_at) {
@@ -1430,10 +1435,8 @@ function renderMessage(msg) {
   if (meta.children.length > 0) msgElement.appendChild(meta)
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   msgElement.appendChild(textEl)
-  msgElement.appendChild(footer)
-  msgElement.appendChild(reactRow)
 
-  // Häkchen unter den eigenen Nachrichten (1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen)
+  // Häkchen direkt neben der Uhrzeit (1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen)
   if (canInfo) {
     const ticksEl = document.createElement('button')
     ticksEl.type = 'button'
@@ -1442,9 +1445,12 @@ function renderMessage(msg) {
       e.stopPropagation()
       openMessageInfo(msg.created_at)
     })
-    msgElement.appendChild(ticksEl)
+    footer.appendChild(ticksEl)
     row.classList.add('has-ticks')
   }
+
+  msgElement.appendChild(footer)
+  msgElement.appendChild(reactRow)
 
   row.appendChild(msgElement)
   updateTicks(row)
@@ -1607,6 +1613,25 @@ function openMessageInfo(createdAt) {
 
   const box = document.getElementById('info-sections')
   box.innerHTML = ''
+
+  // Im Einzelchat gibt es nur eine Person - da muss man niemanden namentlich auflisten,
+  // ein einzelner Status reicht (die Häkchen selbst zeigen das eigentlich schon)
+  if (currentRoom.type === 'dm') {
+    const status = tickStatus(createdAt)
+    const labels = { sent: 'Noch nicht zugestellt', delivered: 'Zugestellt', read: 'Gelesen' }
+
+    const head = document.createElement('div')
+    head.className = 'info-section-title ' + status
+    const icon = document.createElement('span')
+    icon.className = 'info-tick'
+    icon.innerHTML = tickSVG(status !== 'sent')
+    head.appendChild(icon)
+    head.appendChild(document.createTextNode(labels[status]))
+    box.appendChild(head)
+
+    document.getElementById('info-modal').style.display = 'flex'
+    return
+  }
 
   const sections = [
     { title: 'Gelesen von', people: lists.read, status: 'read' },

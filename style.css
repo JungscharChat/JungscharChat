@@ -1081,21 +1081,15 @@ img.emoji {
   border-radius: 10px;
 }
 
-/* ===== Häkchen unter eigenen Nachrichten ===== */
-.msg-row.has-ticks {
-  margin-bottom: 16px;
-}
-
+/* ===== Häkchen neben der Uhrzeit (in der Fußzeile der eigenen Nachricht) ===== */
 .msg-ticks {
-  position: absolute;
-  right: 2px;
-  bottom: -17px;
   width: auto;
-  padding: 2px 4px;
+  padding: 0;
   background: transparent;
   border: none;
   line-height: 0;
-  color: var(--text-secondary);
+  /* Deutlich heller als der eigene (blaue) Nachrichten-Hintergrund, sonst kaum zu erkennen */
+  color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
 }
 
@@ -1104,7 +1098,9 @@ img.emoji {
 }
 
 .msg-ticks.read {
-  color: var(--accent);
+  /* Bewusst nicht die Akzentfarbe, die ist im hellen Design identisch mit dem Blasen-Hintergrund
+     und wäre darauf unsichtbar - stattdessen ein deutlich helleres Cyan für echten Kontrast */
+  color: #7fe0ff;
 }
 
 .msg-ticks svg {
