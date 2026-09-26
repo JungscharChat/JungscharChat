@@ -426,7 +426,7 @@ input:focus-visible {
 .msg {
   position: relative;
   max-width: 78%;
-  padding: 8px 12px 6px 12px;
+  padding: 8px 20px 6px 12px;
   border-radius: var(--radius-bubble);
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -538,12 +538,12 @@ input:focus-visible {
 
 .msg-menu-btn {
   position: absolute;
-  top: -4px;
-  right: -4px;
+  top: 3px;
+  right: 1px;
   width: auto;
-  padding: 0 2px;
+  padding: 0 3px;
   background: transparent;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.4;
   color: inherit;
@@ -558,8 +558,8 @@ input:focus-visible {
 
 .msg-menu {
   position: absolute;
-  top: 18px;
-  right: -4px;
+  top: 24px;
+  right: 1px;
   z-index: 20;
   min-width: 140px;
   background: var(--bg-panel-raised);
@@ -572,7 +572,7 @@ input:focus-visible {
 /* Bei fremden (linken) Nachrichten öffnet das Menü nach rechts statt nach links,
    sonst ragt es bei kurzen Nachrichten am linken Bildschirmrand hinaus und wird abgeschnitten */
 .msg.other .msg-menu {
-  left: -4px;
+  left: 1px;
   right: auto;
 }
 
